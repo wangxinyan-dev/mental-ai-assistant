@@ -22,18 +22,19 @@ public class SecurityConfig {
     private static final String[] PUBLIC_PATHS = {
             "/",
             "/api/test",
+            // 用户登录/注册
             "/api/user/login",
             "/api/user/add",
-            "/api/rag/**",
-            "/api/knowledge/**",
-            "/api/psychological-chat/**",
-            "/api/emotion-diary/**",
-            "/api/data-analytics/**",
-            "/api/file/**",
+            // 知识库前台浏览（仅 GET 公开，写操作由 @PreAuthorize 控制）
+            "/api/knowledge/category/tree",
+            "/api/knowledge/article/page",
+            "/api/knowledge/article/*",
+            // API 文档
             "/doc.html",
             "/webjars/**",
             "/v3/api-docs/**",
             "/swagger-resources/**",
+            // 静态资源 / 监控
             "/actuator/**",
             "/uploads/**"
     };

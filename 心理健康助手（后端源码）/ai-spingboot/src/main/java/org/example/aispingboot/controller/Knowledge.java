@@ -5,6 +5,7 @@ import org.example.aispingboot.common.Result;
 import org.example.aispingboot.entity.KnowledgeArticle;
 import org.example.aispingboot.service.KnowledgeService;
 import org.example.aispingboot.util.JwtTokenUtil;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -41,6 +42,7 @@ public class Knowledge {
     }
 
     @PostMapping("/article")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<String> createArticle(@RequestBody Map<String, Object> dto) {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
@@ -50,6 +52,7 @@ public class Knowledge {
     }
 
     @PutMapping("/article/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<String> updateArticle(@PathVariable Long id, @RequestBody Map<String, Object> dto) {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
@@ -59,12 +62,14 @@ public class Knowledge {
     }
 
     @PutMapping("/article/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<String> updateStatus(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         knowledgeService.updateStatus(id, toInt(body.get("status")));
         return Result.ok("状态更新成功");
     }
 
     @DeleteMapping("/article/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<String> deleteArticle(@PathVariable Long id) {
         knowledgeService.deleteArticle(id);
         return Result.ok("删除成功");

@@ -104,7 +104,8 @@ public class PsychologicalSupportService {
 
             StringBuilder fullResponse = new StringBuilder();
 
-            chatClient.prompt(prompt)
+            // AI 主流：推送 + 累积回复内容
+            reactor.core.publisher.Flux<String> mainStream = chatClient.prompt(prompt)
                     .user(userMessage)
                     .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, conversationId))
                     .stream()
@@ -112,22 +113,34 @@ public class PsychologicalSupportService {
                     .doOnNext(fragment -> {
                         fullResponse.append(fragment);
                         sink.next(fragment);
-                    })
+                    });
+
+            // 命中危机关键词时，在 AI 回复末尾以"非阻塞逐字"方式推送援助热线
+            // 用 concatWith 把热线流拼接到主流之后，避免在 doOnComplete 同步回调里启动异步流
+            if (crisisResult.isTriggered()) {
+                mainStream = mainStream.concatWith(Flux.defer(() -> {
+                    String aiContent = fullResponse.toString();
+                    String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(aiContent, crisisResult);
+                    // 回复中已包含热线号码则不重复追加
+                    if (finalContent.length() <= aiContent.length()) {
+                        return Flux.empty();
+                    }
+                    String hotlineOnly = finalContent.substring(aiContent.length());
+                    // 逐字推送：concatMap 保证顺序，delayElement 非阻塞延迟（替代 Thread.sleep）
+                    List<String> chars = new ArrayList<>();
+                    for (char c : hotlineOnly.toCharArray()) {
+                        chars.add(String.valueOf(c));
+                    }
+                    return Flux.fromIterable(chars)
+                            .concatMap(c -> Mono.just(c).delayElement(Duration.ofMillis(10)))
+                            .doOnNext(sink::next);
+                }));
+            }
+
+            mainStream
                     .doOnComplete(() -> {
-                        // 心理安全层：若命中危机关键词，在AI回复末尾嵌入援助热线
-                        String aiContent = fullResponse.toString();
-                        String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(aiContent, crisisResult);
-                        // 如果追加热线，则把热线再次流式输出
-                        if (crisisResult.isTriggered() && finalContent.length() > aiContent.length()) {
-                            String hotlineOnly = finalContent.substring(aiContent.length());
-                            // 热线按字符推送，保持流式体验
-                            char[] hotlineChars = hotlineOnly.toCharArray();
-                            for (char c : hotlineChars) {
-                                sink.next(String.valueOf(c));
-                            }
-                            try { Thread.sleep(10); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                        }
-                        // 保存最终AI回复（含热线）
+                        // 收尾：保存最终回复（含热线）、更新对话记忆
+                        String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(fullResponse.toString(), crisisResult);
                         consultationMessageService.saveAimessage(dbSessionId, finalContent, "deepseek");
                         List<Message> aiMessages = new ArrayList<>();
                         aiMessages.add(new AssistantMessage(finalContent));

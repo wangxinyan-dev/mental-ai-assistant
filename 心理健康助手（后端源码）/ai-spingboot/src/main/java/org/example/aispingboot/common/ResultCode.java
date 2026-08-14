@@ -5,6 +5,7 @@ public enum ResultCode {
     SUCCESS("200", "操作成功"),
     ERROR("-1", "操作失败"),
     UNAUTHORIZED("401", "暂未登录或token已经过期"),
+    FORBIDDEN("403", "权限不足，无法访问该资源"),
     SYSTEM_ERROR("500", "系统错误"),
 
     // 参数相关错误

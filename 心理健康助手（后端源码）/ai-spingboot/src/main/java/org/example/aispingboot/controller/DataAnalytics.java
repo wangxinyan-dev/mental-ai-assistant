@@ -2,6 +2,7 @@ package org.example.aispingboot.controller;
 
 import org.example.aispingboot.common.Result;
 import org.example.aispingboot.service.DataAnalyticsService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -15,6 +16,7 @@ public class DataAnalytics {
     private DataAnalyticsService dataAnalyticsService;
 
     @GetMapping("/overview")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<Map<String, Object>> overview() {
         return Result.ok(dataAnalyticsService.getOverview());
     }

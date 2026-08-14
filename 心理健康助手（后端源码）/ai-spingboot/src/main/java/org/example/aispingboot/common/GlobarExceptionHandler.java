@@ -5,6 +5,7 @@ import com.auth0.jwt.exceptions.TokenExpiredException;
 import lombok.extern.slf4j.Slf4j;
 import org.example.aispingboot.exception.BusinessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -50,5 +51,23 @@ public class GlobarExceptionHandler {
     public Result<?> handleJWTVerificationException(JWTVerificationException e) {
         log.warn("Token验证失败: {}", e.getMessage());
         return Result.error(ResultCode.TOKEN_INVALID.getCode(), ResultCode.TOKEN_INVALID.getMsg(), null);
+    }
+
+    // 处理权限不足异常（@PreAuthorize 校验失败时抛出）
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<?> handleAccessDeniedException(AccessDeniedException e) {
+        log.warn("权限不足: {}", e.getMessage());
+        return Result.error(ResultCode.FORBIDDEN.getCode(), ResultCode.FORBIDDEN.getMsg(), null);
+    }
+
+    // 处理所有未被捕获的异常（兜底）
+    // 生产环境应该避免打印敏感信息，这里仅记录日志并返回友好提示
+    @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Result<?> handleException(Exception e) {
+        // 记录完整堆栈供排查，但返回给前端的信息要友好
+        log.error("系统异常: {}", e.getMessage(), e);
+        return Result.error(ResultCode.SYSTEM_ERROR.getCode(), "系统繁忙，请稍后重试", null);
     }
 }

@@ -3,7 +3,7 @@ package org.example.aispingboot.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import org.example.aispingboot.AiService.rag.RagService;
+import org.example.aispingboot.AiService.rag.RagAsyncTask;
 import org.example.aispingboot.entity.KnowledgeArticle;
 import org.example.aispingboot.entity.KnowledgeCategory;
 import org.example.aispingboot.mapper.KnowledgeArticleMapper;
@@ -26,7 +26,7 @@ public class KnowledgeService {
     private KnowledgeArticleMapper articleMapper;
 
     @Resource
-    private RagService ragService;
+    private RagAsyncTask ragAsyncTask;
 
     @Cacheable(value = "categoryTree", cacheManager = "cacheManager")
     public List<Map<String, Object>> getCategoryTree() {
@@ -115,8 +115,8 @@ public class KnowledgeService {
             articleMapper.updateById(article);
         }
 
-        // 文章内容变更后，异步重建RAG索引
-        triggerRagRebuild();
+        // 文章内容变更后，异步重建RAG索引（不阻塞当前请求）
+        ragAsyncTask.triggerRebuild(articleId == null ? "新增文章" : "编辑文章 id=" + articleId);
     }
 
     public void updateStatus(Long id, Integer status) {
@@ -125,26 +125,15 @@ public class KnowledgeService {
             article.setStatus(status);
             article.setUpdatedAt(LocalDateTime.now());
             articleMapper.updateById(article);
-            // 状态变更（发布/下线）影响RAG索引范围
-            triggerRagRebuild();
+            // 状态变更（发布/下线）影响RAG索引范围，异步重建
+            ragAsyncTask.triggerRebuild("文章状态变更 id=" + id + " status=" + status);
         }
     }
 
     public void deleteArticle(Long id) {
         articleMapper.deleteById(id);
-        // 文章删除后，重建RAG索引移除其分块
-        triggerRagRebuild();
-    }
-
-    /**
-     * 异步触发RAG索引重建，不阻塞当前请求
-     */
-    private void triggerRagRebuild() {
-        try {
-            ragService.rebuildIndex();
-        } catch (Exception e) {
-            // RAG重建失败不影响文章操作本身
-        }
+        // 文章删除后，异步重建RAG索引移除其分块
+        ragAsyncTask.triggerRebuild("删除文章 id=" + id);
     }
 
     private Long toLong(Object val) {

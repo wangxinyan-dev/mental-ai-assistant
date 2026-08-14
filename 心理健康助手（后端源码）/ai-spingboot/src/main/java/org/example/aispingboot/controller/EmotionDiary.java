@@ -4,6 +4,7 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import org.example.aispingboot.common.Result;
 import org.example.aispingboot.service.EmotionDiaryService;
 import org.example.aispingboot.util.JwtTokenUtil;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -46,6 +47,7 @@ public class EmotionDiary {
     }
 
     @GetMapping("/admin/page")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<Map<String, Object>> adminPage(
             @RequestParam(defaultValue = "1") Integer current,
             @RequestParam(defaultValue = "10") Integer size,
@@ -55,6 +57,7 @@ public class EmotionDiary {
     }
 
     @DeleteMapping("/admin/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<String> delete(@PathVariable Long id) {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);

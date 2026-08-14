@@ -56,8 +56,10 @@ public class JwtAuthticationFilter extends OncePerRequestFilter {
                     Integer status = userStatusService.getUserStatus(validationResult.getUserId());
                     log.debug("Authenticated user: {}, status: {}", validationResult.getUsername(), status);
                     if (status != null && UserStatus.NORMAL.getCode().equals(status)) {
+                        // roleType: 1=普通用户(USER), 2=管理员(ADMIN)
+                        String role = validationResult.getRoleType() == 2 ? "ROLE_ADMIN" : "ROLE_USER";
                         List<SimpleGrantedAuthority> authorities = Collections.singletonList(
-                                new SimpleGrantedAuthority("ROLE_" + validationResult.getRoleType())
+                                new SimpleGrantedAuthority(role)
                         );
                         UsernamePasswordAuthenticationToken authcation = new UsernamePasswordAuthenticationToken(
                                 validationResult.getUsername(), null, authorities
