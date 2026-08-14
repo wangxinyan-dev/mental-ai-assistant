@@ -27,6 +27,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # PgVector 向量数据库（RAG 语义检索）
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mental-health-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-123456}
+      POSTGRES_DB: rag_vector
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./心理健康助手（后端源码）/ai-spingboot
@@ -44,10 +63,15 @@ services:
       AI_API_KEY: ${AI_API_KEY:-you-key}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.siliconflow.cn}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V3}
+      PG_URL: jdbc:postgresql://postgres:5432/rag_vector
+      PG_USERNAME: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-123456}
       SPRING_PROFILES_ACTIVE: prod
       TZ: Asia/Shanghai
     depends_on:
       mysql:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     volumes:
       - uploads-data:/app/uploads
@@ -65,4 +89,5 @@ services:
 
 volumes:
   mysql-data:
+  pg-data:
   uploads-data:

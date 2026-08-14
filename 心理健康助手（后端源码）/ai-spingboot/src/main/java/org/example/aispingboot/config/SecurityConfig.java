@@ -24,6 +24,7 @@ public class SecurityConfig {
             "/api/test",
             "/api/user/login",
             "/api/user/add",
+            "/api/rag/**",
             "/api/knowledge/**",
             "/api/psychological-chat/**",
             "/api/emotion-diary/**",

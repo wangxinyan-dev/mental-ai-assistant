@@ -10,32 +10,32 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
- * RAG 检索增强生成服务（Embedding 方案）
+ * RAG 检索增强生成服务（Embedding + PgVector 方案）
  *
  * 职责：
- * 1. 索引管理：扫描知识库文章 → TokenTextSplitter分块 → EmbeddingModel向量化 → 内存存储 + 文件持久化
- * 2. 检索：用户消息 → EmbeddingModel向量化 → 余弦相似度 → Top-3 相关片段
+ * 1. 索引管理：扫描知识库文章 → TokenTextSplitter分块 → EmbeddingModel向量化 → PgVector存储
+ * 2. 检索：用户消息 → EmbeddingModel向量化 → PgVector余弦相似度 → Top-3 相关片段
  * 3. Prompt增强：将检索到的片段拼接为"参考资料"注入System Prompt
  *
  * 技术栈：
- * - Embedding: OpenAI兼容API（阿里通义千问/OpenAI/SiliconFlow），独立于Chat的DeepSeek
- * - 向量存储: 内存ConcurrentHashMap + JSON文件持久化，应用重启自动加载
+ * - Embedding: OpenAI兼容API（SiliconFlow BAAI/bge-large-zh-v1.5，1024维）
+ * - 向量存储: PostgreSQL + pgvector扩展，HNSW索引，余弦距离检索
  * - TextSplitter: Spring AI TokenTextSplitter（基于tokenizer的分块，支持中文）
  *
  * 架构说明：
- * Spring AI 1.0.0 的 VectorStore 接口在独立模块中（需额外依赖），
- * 本项目直接使用 EmbeddingModel 接口 + 自定义内存向量存储，
- * 功能等价于 SimpleVectorStore，且零额外依赖。
- * 后续迁移到 PgVector/Milvus 只需替换存储和检索逻辑。
+ * - MySQL（MyBatis-Plus）：存储业务数据 + 分块元数据（knowledge_chunk表）
+ * - PostgreSQL（pgvector）：存储向量索引（rag_embedding表），独立数据源 + JdbcTemplate
+ * - 两库通过 chunk_id 关联，rebuildIndex 时双写保持一致
  */
 @Slf4j
 @Service
@@ -50,11 +50,15 @@ public class RagService {
     @Autowired
     private EmbeddingModel embeddingModel;
 
-    @Value("${rag.vector-store.file-path:./rag-vector-store.json}")
-    private String vectorStoreFilePath;
+    @Autowired
+    @Qualifier("pgVectorJdbcTemplate")
+    private JdbcTemplate pgJdbcTemplate;
 
     @Value("${rag.embedding.api-key:}")
     private String embeddingApiKey;
+
+    @Value("${rag.vector-store.pg.dimension:1024}")
+    private int embeddingDimension;
 
     private static final int TOP_K = 3;
     private static final double SIMILARITY_THRESHOLD = 0.5;
@@ -62,46 +66,53 @@ public class RagService {
 
     private final TokenTextSplitter textSplitter = new TokenTextSplitter();
 
-    /** 内存向量存储：线程安全的列表，存储所有已向量化的文档片段 */
-    private final CopyOnWriteArrayList<EmbeddingEntry> vectorStore = new CopyOnWriteArrayList<>();
-
-    /**
-     * 内存中的向量条目
-     */
-    private static class EmbeddingEntry {
-        final String id;
-        final String title;
-        final String content;
-        final float[] vector;
-
-        EmbeddingEntry(String id, String title, String content, float[] vector) {
-            this.id = id;
-            this.title = title;
-            this.content = content;
-            this.vector = vector;
-        }
-    }
-
     /**
      * 检索结果
      */
     public record SearchResult(String title, String content, double score) {}
 
     /**
-     * 应用启动时检查索引状态
+     * 应用启动时初始化PgVector schema并检查索引状态
      */
     @PostConstruct
     public void checkIndexOnStartup() {
-        long dbCount = chunkMapper.selectCount(null);
-        if (dbCount > 0) {
-            log.info("RAG索引：数据库中有 {} 个分块记录", dbCount);
-        } else {
-            log.info("RAG索引为空，请调用 POST /api/rag/rebuild 构建索引");
+        initPgSchema();
+        try {
+            Integer pgCount = pgJdbcTemplate.queryForObject("SELECT COUNT(*) FROM rag_embedding", Integer.class);
+            long dbCount = chunkMapper.selectCount(null);
+            log.info("RAG索引状态：MySQL {} 个分块记录，PgVector {} 个向量", dbCount, pgCount == null ? 0 : pgCount);
+        } catch (Exception e) {
+            log.warn("RAG索引状态检查失败: {}", e.getMessage());
         }
     }
 
     /**
-     * 重建索引：扫描所有已发布文章 → 分块 → Embedding向量化 → 存入内存
+     * 初始化PgVector：扩展、表、HNSW索引
+     * 幂等操作，重复执行无副作用
+     */
+    private void initPgSchema() {
+        try {
+            pgJdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS vector");
+            pgJdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS rag_embedding (" +
+                    "  chunk_id BIGINT PRIMARY KEY," +
+                    "  title VARCHAR(200)," +
+                    "  content TEXT," +
+                    "  embedding vector(" + embeddingDimension + ") NOT NULL" +
+                    ")"
+            );
+            pgJdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS rag_embedding_hnsw_idx " +
+                    "ON rag_embedding USING hnsw (embedding vector_cosine_ops)"
+            );
+            log.info("PgVector schema 已就绪（dimension={}）", embeddingDimension);
+        } catch (Exception e) {
+            log.error("PgVector schema 初始化失败，RAG检索将不可用: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 重建索引：扫描所有已发布文章 → 分块 → Embedding向量化 → 存入PgVector
      *
      * @return 分块数量
      */
@@ -119,9 +130,9 @@ public class RagService {
         );
         log.info("RAG索引重建：扫描到 {} 篇已发布文章", articles.size());
 
-        // 2. 清空旧索引（DB + 内存）
+        // 2. 清空旧索引（MySQL + PgVector）
         chunkMapper.delete(null);
-        vectorStore.clear();
+        pgJdbcTemplate.update("DELETE FROM rag_embedding");
 
         // 3. 分块 + Embedding + 存储
         int chunkCount = 0;
@@ -139,7 +150,7 @@ public class RagService {
             for (int i = 0; i < chunks.size(); i++) {
                 String chunkText = chunks.get(i).getText();
 
-                // 存储分块元数据到DB
+                // 存储分块元数据到MySQL
                 KnowledgeChunk chunk = new KnowledgeChunk();
                 chunk.setArticleId(article.getId());
                 chunk.setChunkIndex(i);
@@ -151,18 +162,19 @@ public class RagService {
                 // 调用Embedding API生成向量
                 float[] vector = embeddingModel.embed(chunkText);
 
-                // 存入内存向量库
-                vectorStore.add(new EmbeddingEntry(
-                        "chunk_" + chunk.getId(),
+                // 存入PgVector向量库
+                pgJdbcTemplate.update(
+                        "INSERT INTO rag_embedding (chunk_id, title, content, embedding) VALUES (?, ?, ?, ?::vector)",
+                        chunk.getId(),
                         article.getTitle(),
                         chunkText,
-                        vector
-                ));
+                        toPgVector(vector)
+                );
                 chunkCount++;
             }
         }
 
-        log.info("RAG索引重建完成：{} 篇文章 → {} 个分块（已Embedding向量化）", articles.size(), chunkCount);
+        log.info("RAG索引重建完成：{} 篇文章 → {} 个分块（PgVector存储）", articles.size(), chunkCount);
         return chunkCount;
     }
 
@@ -176,27 +188,35 @@ public class RagService {
         if (userMessage == null || userMessage.isBlank()) {
             return Collections.emptyList();
         }
-        if (vectorStore.isEmpty() || embeddingApiKey == null || embeddingApiKey.isBlank()) {
+        if (embeddingApiKey == null || embeddingApiKey.isBlank()) {
             return Collections.emptyList();
         }
 
         try {
             // 将用户消息向量化
             float[] queryVector = embeddingModel.embed(userMessage);
+            String vecStr = toPgVector(queryVector);
 
-            // 计算余弦相似度并排序
-            List<SearchResult> scored = vectorStore.stream()
-                    .map(entry -> new SearchResult(
-                            entry.title,
-                            entry.content,
-                            cosineSimilarity(queryVector, entry.vector)
-                    ))
+            // PgVector余弦距离 <=> 范围 [0,2]，相似度 = 1 - 距离
+            // ORDER BY embedding <=> ? 可命中HNSW索引，避免全表扫描
+            String sql = "SELECT title, content, 1 - (embedding <=> ?::vector) AS similarity " +
+                    "FROM rag_embedding " +
+                    "ORDER BY embedding <=> ?::vector " +
+                    "LIMIT " + TOP_K;
+
+            List<SearchResult> results = pgJdbcTemplate.query(sql,
+                    (rs, rowNum) -> new SearchResult(
+                            rs.getString("title"),
+                            rs.getString("content"),
+                            rs.getDouble("similarity")
+                    ),
+                    vecStr, vecStr
+            );
+
+            // 过滤低于阈值的结果
+            return results.stream()
                     .filter(r -> r.score >= SIMILARITY_THRESHOLD)
-                    .sorted((a, b) -> Double.compare(b.score, a.score))
-                    .limit(TOP_K)
                     .collect(Collectors.toList());
-
-            return scored;
         } catch (Exception e) {
             log.warn("RAG检索失败: {}", e.getMessage());
             return Collections.emptyList();
@@ -242,40 +262,32 @@ public class RagService {
      * 获取当前索引状态
      */
     public String getIndexStatus() {
-        int vectorCount = vectorStore.size();
-        long dbCount = chunkMapper.selectCount(null);
-        if (vectorCount == 0 && dbCount == 0) {
-            return "索引未构建";
+        try {
+            Integer vectorCount = pgJdbcTemplate.queryForObject("SELECT COUNT(*) FROM rag_embedding", Integer.class);
+            long dbCount = chunkMapper.selectCount(null);
+            if (vectorCount == null || vectorCount == 0) {
+                if (dbCount == 0) return "索引未构建";
+                return String.format("索引异常：MySQL有%d个分块，PgVector有0个向量", dbCount);
+            }
+            return String.format("索引已加载：%d个分块（PgVector向量存储，%d维）", vectorCount, embeddingDimension);
+        } catch (Exception e) {
+            return "PgVector连接失败：" + e.getMessage();
         }
-        return String.format("索引已加载：%d个分块（Embedding向量存储，%d维）", vectorCount, getEmbeddingDimensions());
     }
 
     // ==================== 内部方法 ====================
 
     /**
-     * 获取Embedding向量维度
+     * 将float[]向量转换为PgVector字符串格式：[0.1,0.2,...]
      */
-    private int getEmbeddingDimensions() {
-        if (vectorStore.isEmpty()) return 0;
-        return vectorStore.get(0).vector.length;
-    }
-
-    /**
-     * 计算两个向量的余弦相似度
-     *
-     * cos(A, B) = (A·B) / (|A| × |B|)
-     * 值域 [-1, 1]，越接近1表示越相似
-     */
-    private double cosineSimilarity(float[] a, float[] b) {
-        if (a.length != b.length) return 0;
-        float dot = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
+    private String toPgVector(float[] vec) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < vec.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append(vec[i]);
         }
-        double denom = Math.sqrt(normA) * Math.sqrt(normB);
-        return denom == 0 ? 0 : dot / denom;
+        sb.append("]");
+        return sb.toString();
     }
 
     /**
