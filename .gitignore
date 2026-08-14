@@ -1,0 +1,19 @@
+# 部署相关
+.env
+mysql-data/
+uploads-data/
+
+# IDE
+.idea/
+.vscode/
+.claude/
+
+# 日志
+*.log
+logs/
+
+# Maven 生成文件
+cp.txt
+
+# 构建产物
+target/

@@ -1,0 +1,68 @@
+# 心理健康助手 - 一体化部署
+# 使用方式：
+#   1. 复制 .env.example 为 .env 并填入 AI_API_KEY 等
+#   2. docker compose up -d --build
+#   3. 浏览器访问 http://服务器IP:8080  （本机部署即 http://localhost:8080）
+name: mental-health
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mental-health-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_DATABASE: mental_health_assistant
+      TZ: Asia/Shanghai
+    # 不对外暴露端口，仅容器内网通信（backend 通过服务名 mysql:3306 访问）
+    # 如需用 Navicat 连接查看数据，取消下行注释，改为 3307:3306
+    # ports:
+    #   - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./心理健康助手（后端源码）/ai-spingboot/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./心理健康助手（后端源码）/ai-spingboot
+      dockerfile: Dockerfile
+    container_name: mental-health-backend
+    restart: unless-stopped
+    ports:
+      - "1236:1236"
+    environment:
+      SERVER_PORT: 1236
+      DB_URL: jdbc:mysql://mysql:3306/mental_health_assistant?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      JWT_SECRET: ${JWT_SECRET:-MySecretKeyForJWT2025!@#$%^&*()_+SecureKeyHere}
+      AI_API_KEY: ${AI_API_KEY:-you-key}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.siliconflow.cn}
+      AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V3}
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - uploads-data:/app/uploads
+
+  frontend:
+    build:
+      context: ./心理健康助手（前端源码）/ai-vue
+      dockerfile: Dockerfile
+    container_name: mental-health-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
+  uploads-data:

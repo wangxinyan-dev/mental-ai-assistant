@@ -1,0 +1,15 @@
+logging:
+  level:
+    org.example.aispingboot: WARN
+    org.springframework.security: WARN
+
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 10000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      connection-test-query: SELECT 1
+      leak-detection-threshold: 30000

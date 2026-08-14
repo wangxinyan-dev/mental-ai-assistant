@@ -1,0 +1,21 @@
+# 直接用本地已打包好的 JAR（不需要 Docker 里再 mvn 编译）
+FROM eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# 创建上传目录
+RUN mkdir -p /app/uploads
+
+# 把刚才 mvn package 产物直接 COPY 进去
+COPY target/ai-spingboot-0.0.1-SNAPSHOT.jar app.jar
+
+EXPOSE 1236
+
+ENV SERVER_PORT=1236
+ENV DB_USERNAME=root
+ENV DB_PASSWORD=123456
+ENV JWT_SECRET=change-me-in-production
+ENV AI_API_KEY=your-api-key
+ENV SPRING_PROFILES_ACTIVE=prod
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

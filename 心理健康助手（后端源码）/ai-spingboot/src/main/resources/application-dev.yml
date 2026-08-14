@@ -1,0 +1,10 @@
+# 开发环境配置
+logging:
+  level:
+    org.example.aispingboot: DEBUG
+    org.example.aispingboot.mapper: DEBUG
+    org.springframework.security: INFO
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
