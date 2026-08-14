@@ -95,7 +95,10 @@ public class PsychologicalChat {
 
     @GetMapping("/sessions/{id}/messages")
     public Result<List<org.example.aispingboot.entity.ConsultationMessage>> getSessionMessages(@PathVariable Long id) {
-        return Result.ok(consultationSessionService.getSessionMessages(id));
+        String token = JwtTokenUtil.getCurrentToken();
+        DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
+        Long userId = jwt.getClaim("userId").asLong();
+        return Result.ok(consultationSessionService.getSessionMessages(id, userId));
     }
 
     @GetMapping("/session/{id}/emotion")

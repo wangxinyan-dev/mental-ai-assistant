@@ -3,6 +3,7 @@ package org.example.aispingboot.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.aispingboot.AiService.rag.RagService;
 import org.example.aispingboot.entity.KnowledgeArticle;
 import org.example.aispingboot.entity.KnowledgeCategory;
 import org.example.aispingboot.mapper.KnowledgeArticleMapper;
@@ -23,6 +24,9 @@ public class KnowledgeService {
 
     @Resource
     private KnowledgeArticleMapper articleMapper;
+
+    @Resource
+    private RagService ragService;
 
     @Cacheable(value = "categoryTree", cacheManager = "cacheManager")
     public List<Map<String, Object>> getCategoryTree() {
@@ -110,6 +114,9 @@ public class KnowledgeService {
         } else {
             articleMapper.updateById(article);
         }
+
+        // 文章内容变更后，异步重建RAG索引
+        triggerRagRebuild();
     }
 
     public void updateStatus(Long id, Integer status) {
@@ -118,11 +125,26 @@ public class KnowledgeService {
             article.setStatus(status);
             article.setUpdatedAt(LocalDateTime.now());
             articleMapper.updateById(article);
+            // 状态变更（发布/下线）影响RAG索引范围
+            triggerRagRebuild();
         }
     }
 
     public void deleteArticle(Long id) {
         articleMapper.deleteById(id);
+        // 文章删除后，重建RAG索引移除其分块
+        triggerRagRebuild();
+    }
+
+    /**
+     * 异步触发RAG索引重建，不阻塞当前请求
+     */
+    private void triggerRagRebuild() {
+        try {
+            ragService.rebuildIndex();
+        } catch (Exception e) {
+            // RAG重建失败不影响文章操作本身
+        }
     }
 
     private Long toLong(Object val) {

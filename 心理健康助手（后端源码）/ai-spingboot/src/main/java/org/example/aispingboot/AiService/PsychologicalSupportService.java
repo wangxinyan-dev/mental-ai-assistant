@@ -1,5 +1,6 @@
 package org.example.aispingboot.AiService;
 
+import org.example.aispingboot.AiService.rag.RagService;
 import org.example.aispingboot.AiService.safety.CrisisSafetyFilter;
 import org.example.aispingboot.AiService.safety.PromptInjectionGuard;
 import org.example.aispingboot.DTO.command.ConsultationSessionCreateDTO;
@@ -44,6 +45,9 @@ public class PsychologicalSupportService {
 
     @Autowired
     private PromptInjectionGuard promptInjectionGuard;
+
+    @Autowired
+    private RagService ragService;
 
     public StructOutPut.StreamChatSession startSession(Long userId, ConsultationSessionCreateDTO createDTO) {
         // 创建数据库会话记录
@@ -95,7 +99,7 @@ public class PsychologicalSupportService {
             userMessages.add(new UserMessage(userMessage));
             chatMemory.add(conversationId, userMessages);
             Prompt prompt = new Prompt(List.of(
-                    new SystemMessage(buildSystemPrompt(crisisResult))
+                    new SystemMessage(buildSystemPrompt(crisisResult, userMessage))
             ));
 
             StringBuilder fullResponse = new StringBuilder();
@@ -170,11 +174,16 @@ public class PsychologicalSupportService {
 
     /**
      * 根据危机等级，动态拼接系统提示词，增加危机干预指令
+     * 同时通过RAG检索知识库相关片段，增强AI回复的专业性
      */
-    private String buildSystemPrompt(CrisisSafetyFilter.CrisisResult crisisResult) {
+    private String buildSystemPrompt(CrisisSafetyFilter.CrisisResult crisisResult, String userMessage) {
         String base = PromptManage.PSYCHOLOGICAL_SUPPORT_SYSTEM_PROMPT;
+
+        // RAG检索：从知识库中检索与用户消息相关的专业心理知识片段
+        String ragContext = ragService.buildAugmentedContext(userMessage);
+
         if (!crisisResult.isTriggered()) {
-            return base;
+            return base + ragContext;
         }
         if (crisisResult.getLevel() == CrisisSafetyFilter.RiskLevel.HIGH) {
             return base + "\n\n【紧急危机干预指令】\n" +
@@ -183,13 +192,13 @@ public class PsychologicalSupportService {
                     "2. 认真共情其痛苦，但强调生命的价值和可改变性；\n" +
                     "3. 明确引导用户寻求现实中的帮助：家人、朋友、学校心理咨询中心；\n" +
                     "4. 务必在回复中以醒目的方式提醒全国24小时心理援助热线 400-161-9995；\n" +
-                    "5. 禁止给出任何可能被理解为鼓励或默许伤害自己的建议。";
+                    "5. 禁止给出任何可能被理解为鼓励或默许伤害自己的建议。" + ragContext;
         }
         // 中风险
         return base + "\n\n【情绪风险提示】\n" +
                 "用户当前情绪较为低落、绝望（命中词汇：" + crisisResult.getMatchedKeywords() + "）。\n" +
                 "请以温暖、陪伴的口吻，引导用户表达内心，给予希望感；\n" +
-                "并在回复末尾提醒：如感到无法支撑，可以拨打全国心理援助热线 400-161-9995。";
+                "并在回复末尾提醒：如感到无法支撑，可以拨打全国心理援助热线 400-161-9995。" + ragContext;
     }
 
     private void saveUserMessageIfNeeded(Long dbSessionId, String userMessage) {

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.aispingboot.entity.EmotionDiary;
 import org.example.aispingboot.entity.User;
+import org.example.aispingboot.exception.BusinessException;
 import org.example.aispingboot.mapper.EmotionDiaryMapper;
 import org.example.aispingboot.mapper.UserMapper;
 import org.springframework.stereotype.Service;
@@ -119,7 +120,14 @@ public class EmotionDiaryService {
         return Map.of("records", records, "total", result.getTotal());
     }
 
-    public void deleteDiary(Long id) {
+    public void deleteDiary(Long id, Long userId) {
+        EmotionDiary diary = diaryMapper.selectById(id);
+        if (diary == null) {
+            throw new BusinessException("日记不存在");
+        }
+        if (!diary.getUserId().equals(userId)) {
+            throw new BusinessException("无权删除他人的日记");
+        }
         diaryMapper.deleteById(id);
     }
 

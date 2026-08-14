@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS knowledge_article (
     INDEX idx_updated_at (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- RAG知识库分块表
+CREATE TABLE IF NOT EXISTS knowledge_chunk (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    article_id BIGINT NOT NULL COMMENT '所属文章ID',
+    chunk_index INT NOT NULL COMMENT '分块序号',
+    title VARCHAR(200) COMMENT '文章标题',
+    content TEXT NOT NULL COMMENT '分块内容',
+    tfidf_vector JSON COMMENT 'TF-IDF向量（JSON格式）',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_article_id (article_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG知识库分块';
+
 CREATE TABLE IF NOT EXISTS emotion_diary (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL,

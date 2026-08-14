@@ -56,7 +56,10 @@ public class EmotionDiary {
 
     @DeleteMapping("/admin/{id}")
     public Result<String> delete(@PathVariable Long id) {
-        emotionDiaryService.deleteDiary(id);
+        String token = JwtTokenUtil.getCurrentToken();
+        DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
+        Long userId = jwt.getClaim("userId").asLong();
+        emotionDiaryService.deleteDiary(id, userId);
         return Result.ok("删除成功");
     }
 }

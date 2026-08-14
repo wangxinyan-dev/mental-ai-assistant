@@ -186,7 +186,14 @@ public class ConsultationSessionService {
         consultationSessionMapper.deleteById(sessionId);
     }
 
-    public List<ConsultationMessage> getSessionMessages(Long sessionId) {
+    public List<ConsultationMessage> getSessionMessages(Long sessionId, Long userId) {
+        ConsultationSession session = consultationSessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw new BusinessException("会话不存在");
+        }
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权查看他人的会话记录");
+        }
         LambdaQueryWrapper<ConsultationMessage> qw = new LambdaQueryWrapper<>();
         qw.eq(ConsultationMessage::getSessionId, sessionId)
           .orderByAsc(ConsultationMessage::getCreatedAt);
