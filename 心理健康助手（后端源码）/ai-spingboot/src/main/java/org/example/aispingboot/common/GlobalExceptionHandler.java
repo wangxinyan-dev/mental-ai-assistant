@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @RestControllerAdvice
-public class GlobarExceptionHandler {
+public class GlobalExceptionHandler {
     // 处理参数校验异常
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<String> handlerException(MethodArgumentNotValidException e) {

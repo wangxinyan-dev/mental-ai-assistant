@@ -1,6 +1,7 @@
 # 部署相关
 .env
 mysql-data/
+pg-data/
 uploads-data/
 
 # IDE
@@ -11,9 +12,29 @@ uploads-data/
 # 日志
 *.log
 logs/
-
-# Maven 生成文件
-cp.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # 构建产物
 target/
+dist/
+dist-ssr/
+
+# 前端依赖
+node_modules/
+*.local
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Maven 临时文件
+cp.txt
+.mvn/wrapper/maven-wrapper.jar

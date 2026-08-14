@@ -8,12 +8,15 @@ import org.example.aispingboot.mapper.KnowledgeArticleMapper;
 import org.example.aispingboot.mapper.KnowledgeChunkMapper;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -63,6 +66,13 @@ public class RagService {
     private static final int TOP_K = 3;
     private static final double SIMILARITY_THRESHOLD = 0.5;
     private static final int MAX_CONTEXT_CHARS = 1500;
+    private static final int EMBEDDING_BATCH_SIZE = 10;
+
+    /**
+     * 批量向量化时的中间对象：保存 MySQL 分块记录 + 对应的文本
+     * 等批量 Embedding 返回后再按位置关联向量写入 PgVector
+     */
+    private record ChunkBatchItem(KnowledgeChunk chunk, String title, String chunkText) {}
 
     private final TokenTextSplitter textSplitter = new TokenTextSplitter();
 
@@ -112,10 +122,22 @@ public class RagService {
     }
 
     /**
-     * 重建索引：扫描所有已发布文章 → 分块 → Embedding向量化 → 存入PgVector
+     * 重建索引：扫描所有已发布文章 → 分块 → 批量 Embedding 向量化 → 双写 MySQL + PgVector
+     *
+     * 一致性策略：
+     * - MySQL 侧（knowledge_chunk 表）由 @Transactional 保证原子性，
+     *   任何异常都会触发 MySQL 事务回滚，避免"删了一半没插回去"。
+     * - PgVector 侧（独立数据源）不在同一个 JTA 事务中，
+     *   极端情况下可能出现 MySQL 回滚但 PgVector 已写入——解决方式是：
+     *   PgVector 的写入放在 MySQL INSERT 成功之后执行 + 幂等 rebuild（下次重建先 DELETE 再 INSERT），
+     *   生产环境如果需要强一致，建议集成 Atomikos 做 JTA 两阶段提交。
+     *
+     * 性能优化：
+     * - Embedding 调用从"每条 1 次 HTTP"改为"10 条 1 次批量"，降低 ~90% 的网络 round-trip
      *
      * @return 分块数量
      */
+    @Transactional(rollbackFor = Exception.class)
     public int rebuildIndex() {
         if (embeddingApiKey == null || embeddingApiKey.isBlank()) {
             log.warn("RAG索引重建失败：未配置Embedding API密钥（rag.embedding.api-key）");
@@ -131,16 +153,17 @@ public class RagService {
         log.info("RAG索引重建：扫描到 {} 篇已发布文章", articles.size());
 
         // 2. 清空旧索引（MySQL + PgVector）
+        //    MySQL 的 DELETE 纳入事务；PgVector 独立数据源通过幂等 DELETE 兜底
         chunkMapper.delete(null);
         pgJdbcTemplate.update("DELETE FROM rag_embedding");
 
-        // 3. 分块 + Embedding + 存储
-        int chunkCount = 0;
+        // 3. 先把所有分块写入 MySQL，拿到 chunk id
+        //    同时收集 (chunk, title, chunkText) 三元组，供下一步批量向量化
+        List<ChunkBatchItem> allItems = new ArrayList<>();
         for (KnowledgeArticle article : articles) {
             String cleanContent = stripHtml(article.getContent());
             if (cleanContent.isBlank()) continue;
 
-            // 用TokenTextSplitter分块
             Document articleDoc = Document.builder()
                     .text(cleanContent)
                     .metadata(Map.of("title", article.getTitle()))
@@ -150,29 +173,63 @@ public class RagService {
             for (int i = 0; i < chunks.size(); i++) {
                 String chunkText = chunks.get(i).getText();
 
-                // 存储分块元数据到MySQL
                 KnowledgeChunk chunk = new KnowledgeChunk();
                 chunk.setArticleId(article.getId());
                 chunk.setChunkIndex(i);
                 chunk.setTitle(article.getTitle());
                 chunk.setContent(chunkText);
                 chunk.setCreatedAt(LocalDateTime.now());
-                chunkMapper.insert(chunk);
+                chunkMapper.insert(chunk);   // 受 @Transactional 保护
 
-                // 调用Embedding API生成向量
-                float[] vector = embeddingModel.embed(chunkText);
+                allItems.add(new ChunkBatchItem(chunk, article.getTitle(), chunkText));
+            }
+        }
 
-                // 存入PgVector向量库
+        if (allItems.isEmpty()) {
+            log.info("RAG索引重建完成：无可向量化分块");
+            return 0;
+        }
+
+        // 4. 批量 Embedding + 写入 PgVector
+        //    10 条一批调用 Embedding API，减少 HTTP round-trip
+        long embeddingStart = System.currentTimeMillis();
+        int chunkCount = 0;
+        for (int start = 0; start < allItems.size(); start += EMBEDDING_BATCH_SIZE) {
+            int end = Math.min(start + EMBEDDING_BATCH_SIZE, allItems.size());
+            List<ChunkBatchItem> batch = allItems.subList(start, end);
+
+            // 4.1 组装批请求（所有 chunkText）
+            List<String> batchTexts = batch.stream()
+                    .map(ChunkBatchItem::chunkText)
+                    .toList();
+            EmbeddingRequest request = EmbeddingRequest.builder()
+                    .inputs(batchTexts)
+                    .build();
+            EmbeddingResponse response = embeddingModel.call(request);
+
+            if (response.getResults().size() != batch.size()) {
+                throw new IllegalStateException(String.format(
+                        "Embedding 批量返回异常：请求 %d 条，收到 %d 条结果",
+                        batch.size(), response.getResults().size()));
+            }
+
+            // 4.2 按位置一一对应，写入 PgVector
+            for (int i = 0; i < batch.size(); i++) {
+                ChunkBatchItem item = batch.get(i);
+                float[] vector = response.getResults().get(i).getOutput();
                 pgJdbcTemplate.update(
                         "INSERT INTO rag_embedding (chunk_id, title, content, embedding) VALUES (?, ?, ?, ?::vector)",
-                        chunk.getId(),
-                        article.getTitle(),
-                        chunkText,
+                        item.chunk().getId(),
+                        item.title(),
+                        item.chunkText(),
                         toPgVector(vector)
                 );
                 chunkCount++;
             }
         }
+        long embeddingCost = System.currentTimeMillis() - embeddingStart;
+        log.info("RAG向量化：{} 个分块，批大小 {}，共用时 {}ms（平均 {:.0f}ms/分块）",
+                chunkCount, EMBEDDING_BATCH_SIZE, embeddingCost, embeddingCost * 1.0 / chunkCount);
 
         log.info("RAG索引重建完成：{} 篇文章 → {} 个分块（PgVector存储）", articles.size(), chunkCount);
         return chunkCount;

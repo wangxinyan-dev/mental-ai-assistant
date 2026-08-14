@@ -23,7 +23,7 @@ EXPOSE 1236
 # 通过环境变量注入敏感配置（不要在镜像里写死）
 ENV SERVER_PORT=1236
 ENV DB_USERNAME=root
-ENV DB_PASSWORD=123456
+ENV DB_PASSWORD=change-me-in-production
 ENV JWT_SECRET=change-me-in-production
 ENV AI_API_KEY=your-api-key
 ENV SPRING_PROFILES_ACTIVE=prod

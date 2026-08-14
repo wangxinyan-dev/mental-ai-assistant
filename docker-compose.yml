@@ -59,7 +59,7 @@ services:
       DB_URL: jdbc:mysql://mysql:3306/mental_health_assistant?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       DB_USERNAME: root
       DB_PASSWORD: ${DB_PASSWORD:-123456}
-      JWT_SECRET: ${JWT_SECRET:-MySecretKeyForJWT2025!@#$%^&*()_+SecureKeyHere}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       AI_API_KEY: ${AI_API_KEY:-you-key}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.siliconflow.cn}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V3}

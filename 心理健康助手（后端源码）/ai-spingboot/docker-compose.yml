@@ -27,7 +27,7 @@ services:
       SERVER_PORT: 1236
       DB_USERNAME: root
       DB_PASSWORD: ${DB_PASSWORD:-123456}
-      JWT_SECRET: ${JWT_SECRET:-MySecretKeyForJWT2025!@#$%}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       AI_API_KEY: ${AI_API_KEY:-you-key}
       SPRING_PROFILES_ACTIVE: prod
     depends_on:
