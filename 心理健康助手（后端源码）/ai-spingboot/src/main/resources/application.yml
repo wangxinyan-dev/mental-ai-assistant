@@ -22,6 +22,8 @@ spring:
         completions-path: /v1/chat/completions
       api-key: ${AI_API_KEY:请填写AI服务API密钥}
       base-url: ${AI_BASE_URL:https://api.deepseek.com}
+      embedding:
+        enabled: false  # 禁用自动配置的Embedding（DeepSeek不支持），使用自定义EmbeddingConfig
   servlet:
     multipart:
       max-file-size: 10MB
@@ -40,3 +42,19 @@ jwt:
   refresh-expiration: 604800000
   header: Authorization
   token-prefix: "Bearer "
+
+# RAG 检索增强生成配置
+rag:
+  # Embedding API（独立于Chat的DeepSeek，因DeepSeek不支持Embedding）
+  # 当前默认使用 SiliconFlow（免费），只需设置 EMBEDDING_API_KEY 环境变量即可
+  # 其他可选提供商：
+  #   阿里云通义千问: base-url=https://dashscope.aliyuncs.com/compatible-mode  model=text-embedding-v3
+  #   OpenAI:         base-url=https://api.openai.com                          model=text-embedding-3-small
+  #   SiliconFlow:    base-url=https://api.siliconflow.cn                      model=BAAI/bge-large-zh-v1.5
+  embedding:
+    base-url: ${EMBEDDING_BASE_URL:https://api.siliconflow.cn}
+    api-key: ${EMBEDDING_API_KEY:}
+    model: ${EMBEDDING_MODEL:BAAI/bge-large-zh-v1.5}
+  # 向量存储文件持久化路径
+  vector-store:
+    file-path: ${RAG_VECTOR_STORE_FILE:./rag-vector-store.json}

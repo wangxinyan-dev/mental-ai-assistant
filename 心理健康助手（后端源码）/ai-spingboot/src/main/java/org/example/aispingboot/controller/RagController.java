@@ -20,7 +20,7 @@ public class RagController {
 
     /**
      * 重建RAG索引
-     * 扫描所有已发布文章 → 分块 → 计算TF-IDF → 存储到DB + 加载到内存
+     * 扫描所有已发布文章 → TokenTextSplitter分块 → Embedding向量化 → 存入VectorStore
      */
     @PostMapping("/rebuild")
     public Result<Map<String, Object>> rebuildIndex() {
@@ -43,7 +43,7 @@ public class RagController {
 
     /**
      * 测试检索（调试用）
-     * 输入查询文本，返回Top-3相关片段
+     * 输入查询文本，返回Top-3相关片段（含相似度分数）
      */
     @GetMapping("/search")
     public Result<Object> search(@RequestParam String query) {
