@@ -1,15 +1,23 @@
 package org.example.aispingboot.config;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.example.aispingboot.entity.KnowledgeArticle;
 import org.example.aispingboot.entity.KnowledgeCategory;
+import org.example.aispingboot.entity.User;
+import org.example.aispingboot.enumClass.UserStatus;
+import org.example.aispingboot.enumClass.UserType;
 import org.example.aispingboot.mapper.KnowledgeArticleMapper;
 import org.example.aispingboot.mapper.KnowledgeCategoryMapper;
+import org.example.aispingboot.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Component
 public class DataInitializer implements CommandLineRunner {
 
@@ -19,6 +27,9 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     private KnowledgeArticleMapper articleMapper;
 
+    @Autowired
+    private UserMapper userMapper;
+
     @Override
     public void run(String... args) {
         if (categoryMapper.selectCount(null) == 0) {
@@ -26,6 +37,12 @@ public class DataInitializer implements CommandLineRunner {
         }
         if (articleMapper.selectCount(null) == 0) {
             seedArticles();
+        }
+        // 管理员种子：杜绝管理员只能靠公开注册口传 userType=2 越权“造”出来
+        LambdaQueryWrapper<User> adminQuery = new LambdaQueryWrapper<>();
+        adminQuery.eq(User::getUserType, UserType.ADMIN.getCode());
+        if (userMapper.selectCount(adminQuery) == 0) {
+            seedAdmin();
         }
     }
 
@@ -84,5 +101,20 @@ public class DataInitializer implements CommandLineRunner {
         a3.setCreatedAt(LocalDateTime.now());
         a3.setUpdatedAt(LocalDateTime.now());
         articleMapper.insert(a3);
+    }
+
+    private void seedAdmin() {
+        User admin = new User();
+        admin.setUsername("admin");
+        admin.setEmail("admin@example.com");
+        admin.setPassword(new BCryptPasswordEncoder().encode("admin123"));
+        admin.setNickname("系统管理员");
+        admin.setUserType(UserType.ADMIN.getCode());
+        admin.setStatus(UserStatus.NORMAL.getCode());
+        admin.setCreatedAt(LocalDateTime.now());
+        admin.setUpdatedAt(LocalDateTime.now());
+        userMapper.insert(admin);
+        // 安全提示：默认密码仅用于本地开发/演示，生产环境应通过环境变量注入初始密码并强制首次登录改密
+        log.warn("已初始化默认管理员账号 admin / admin123，请生产环境立即修改密码");
     }
 }

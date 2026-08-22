@@ -51,9 +51,9 @@ class JwtTokenUtilTest {
     }
 
     @Test
-    void extractTokenFromRequest_shouldReturnNull_whenNoTokenHeader() {
+    void extractTokenFromRequest_shouldReturnNull_whenNoAuthorizationHeader() {
         jakarta.servlet.http.HttpServletRequest request = mock(jakarta.servlet.http.HttpServletRequest.class);
-        when(request.getHeader("token")).thenReturn(null);
+        when(request.getHeader("Authorization")).thenReturn(null);
 
         String token = JwtTokenUtil.extractTokenFromRequest(request);
 
@@ -61,13 +61,12 @@ class JwtTokenUtilTest {
     }
 
     @Test
-    void extractTokenFromRequest_shouldReturnToken_whenTokenHeaderPresent() {
-        String expectedToken = "test.jwt.token";
+    void extractTokenFromRequest_shouldStripBearerPrefix() {
         jakarta.servlet.http.HttpServletRequest request = mock(jakarta.servlet.http.HttpServletRequest.class);
-        when(request.getHeader("token")).thenReturn(expectedToken);
+        when(request.getHeader("Authorization")).thenReturn("Bearer test.jwt.token");
 
         String token = JwtTokenUtil.extractTokenFromRequest(request);
 
-        assertEquals(expectedToken, token);
+        assertEquals("test.jwt.token", token);
     }
 }

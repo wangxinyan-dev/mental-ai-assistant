@@ -115,8 +115,8 @@ public class KnowledgeService {
             articleMapper.updateById(article);
         }
 
-        // 文章内容变更后，异步重建RAG索引（不阻塞当前请求）
-        ragAsyncTask.triggerRebuild(articleId == null ? "新增文章" : "编辑文章 id=" + articleId);
+        // 文章内容变更后，增量重建该篇文章的索引（不阻塞当前请求；未发布时内部自动清理残留）
+        ragAsyncTask.triggerRebuildArticle(article.getId(), articleId == null ? "新增文章" : "编辑文章 id=" + articleId);
     }
 
     public void updateStatus(Long id, Integer status) {
@@ -124,16 +124,20 @@ public class KnowledgeService {
         if (article != null) {
             article.setStatus(status);
             article.setUpdatedAt(LocalDateTime.now());
-            articleMapper.updateById(article);
-            // 状态变更（发布/下线）影响RAG索引范围，异步重建
-            ragAsyncTask.triggerRebuild("文章状态变更 id=" + id + " status=" + status);
+            articleMapper.updateById(article);//同步落库
+            // 状态变更影响 RAG 索引：发布→增量重建这篇，下线→增量删除这篇
+            if (status != null && status == 1) {
+                ragAsyncTask.triggerRebuildArticle(id, "文章发布 id=" + id);
+            } else {
+                ragAsyncTask.triggerDeleteArticle(id, "文章下线 id=" + id);
+            }
         }
     }
 
     public void deleteArticle(Long id) {
         articleMapper.deleteById(id);
-        // 文章删除后，异步重建RAG索引移除其分块
-        ragAsyncTask.triggerRebuild("删除文章 id=" + id);
+        // 文章删除后，增量移除其分块与向量
+        ragAsyncTask.triggerDeleteArticle(id, "删除文章 id=" + id);
     }
 
     private Long toLong(Object val) {

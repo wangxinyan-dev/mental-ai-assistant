@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -70,119 +71,112 @@ public class PsychologicalSupportService {
     }
 
     public Flux<String> streamPsychologicalChat(String sessionId, String userMessage) {
-        return Flux.create(sink -> {
-            Long dbSessionId = extractSessionId(sessionId);
-            if (dbSessionId == null) {
-                sink.error(new RuntimeException("会话ID格式错误"));
-                return;
-            }
+        Long dbSessionId = extractSessionId(sessionId);
+        if (dbSessionId == null) {
+            return Flux.error(new RuntimeException("会话ID格式错误"));
+        }
 
-            // ============ AI安全层：Prompt注入检测 ============
-            PromptInjectionGuard.GuardResult guardResult = promptInjectionGuard.check(userMessage);
-            if (guardResult.isBlocked()) {
-                saveUserMessageIfNeeded(dbSessionId, userMessage);
-                // 模拟流式逐字输出安全回复，不调用大模型
-                String safeReply = guardResult.getSafeReply();
-                streamSafeReplyBlocking(sink, dbSessionId, sessionId, safeReply);
-                return;
-            }
-
-            // ============ 心理安全层：检测危机关键词 ============
-            CrisisSafetyFilter.CrisisResult crisisResult = crisisSafetyFilter.detect(userMessage);
-
-            // 保存用户消息（如果不是初始会话消息）
+        // ============ AI安全层：Prompt注入检测 ============
+        PromptInjectionGuard.GuardResult guardResult = promptInjectionGuard.check(userMessage);
+        if (guardResult.isBlocked()) {
             saveUserMessageIfNeeded(dbSessionId, userMessage);
+            // 拦截分支不走 ChatClient/advisor，需手动把用户消息加入对话记忆，保证上下文完整
+            List<Message> interceptedUserMessages = new ArrayList<>();
+            interceptedUserMessages.add(new UserMessage(userMessage));
+            chatMemory.add("conversation_" + sessionId, interceptedUserMessages);
+            // 模拟流式逐字输出安全回复，不调用大模型
+            return streamSafeReply(dbSessionId, sessionId, guardResult.getSafeReply());
+        }
 
-            // 对话记忆与Prompt
-            String conversationId = "conversation_" + sessionId;
-            List<Message> userMessages = new ArrayList<>();
-            userMessages.add(new UserMessage(userMessage));
-            chatMemory.add(conversationId, userMessages);
-            Prompt prompt = new Prompt(List.of(
-                    new SystemMessage(buildSystemPrompt(crisisResult, userMessage))
-            ));
+        // ============ 心理安全层：检测危机关键词 ============
+        CrisisSafetyFilter.CrisisResult crisisResult = crisisSafetyFilter.detect(userMessage);
 
-            StringBuilder fullResponse = new StringBuilder();
+        // 保存用户消息（如果不是初始会话消息）
+        saveUserMessageIfNeeded(dbSessionId, userMessage);
 
-            // AI 主流：推送 + 累积回复内容
-            reactor.core.publisher.Flux<String> mainStream = chatClient.prompt(prompt)
-                    .user(userMessage)
-                    .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, conversationId))
-                    .stream()
-                    .content()
-                    .doOnNext(fragment -> {
-                        fullResponse.append(fragment);
-                        sink.next(fragment);
-                    });
+        // 关键：buildSystemPrompt 内部的 RAG 检索（Embedding HTTP + PG JDBC）是阻塞 IO，
+        // 用 Mono.fromCallable + subscribeOn(boundedElastic) 移到弹性线程池，
+        // 避免阻塞 Netty 事件循环 / 请求线程
+        return Mono.fromCallable(() -> buildSystemPrompt(crisisResult, userMessage))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(systemPrompt ->
+                        buildChatStream(dbSessionId, sessionId, userMessage, crisisResult, systemPrompt));
+    }
 
-            // 命中危机关键词时，在 AI 回复末尾以"非阻塞逐字"方式推送援助热线
-            // 用 concatWith 把热线流拼接到主流之后，避免在 doOnComplete 同步回调里启动异步流
-            if (crisisResult.isTriggered()) {
-                mainStream = mainStream.concatWith(Flux.defer(() -> {
-                    String aiContent = fullResponse.toString();
-                    String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(aiContent, crisisResult);
-                    // 回复中已包含热线号码则不重复追加
-                    if (finalContent.length() <= aiContent.length()) {
-                        return Flux.empty();
+    /**
+     * 构建 AI 聊天流（RAG 检索完成后调用），返回纯响应式 Flux：
+     * chatClient 流式输出 → 危机热线拼接 → 收尾落库。不再使用 Flux.create + 手动 subscribe。
+     */
+    private Flux<String> buildChatStream(Long dbSessionId, String sessionId, String userMessage,
+                                         CrisisSafetyFilter.CrisisResult crisisResult, String systemPrompt) {
+        String conversationId = "conversation_" + sessionId;
+        // 用户消息由 MessageChatMemoryAdvisor 自动写入 chatMemory，无需手动 add（避免重复占用记忆窗口）
+        Prompt prompt = new Prompt(List.of(new SystemMessage(systemPrompt)));
+
+        StringBuilder fullResponse = new StringBuilder();
+
+        // AI 主流：累积回复内容
+        Flux<String> mainStream = chatClient.prompt(prompt)
+                .user(userMessage)
+                .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, conversationId))
+                .stream()
+                .content()
+                .doOnNext(fullResponse::append);
+
+        // 命中危机关键词时，在 AI 回复末尾以"非阻塞逐字"方式推送援助热线
+        if (crisisResult.isTriggered()) {
+            mainStream = mainStream.concatWith(Flux.defer(() -> {
+                String aiContent = fullResponse.toString();
+                String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(aiContent, crisisResult);
+                // 回复中已包含热线号码则不重复追加
+                if (finalContent.length() <= aiContent.length()) {
+                    return Flux.empty();
+                }
+                String hotlineOnly = finalContent.substring(aiContent.length());
+                List<String> chars = new ArrayList<>();
+                for (char c : hotlineOnly.toCharArray()) {
+                    chars.add(String.valueOf(c));
+                }
+                return Flux.fromIterable(chars)
+                        .concatMap(c -> Mono.just(c).delayElement(Duration.ofMillis(10)));
+            }));
+        }
+
+        return mainStream
+                .doOnComplete(() -> {
+                    // 收尾：保存最终回复（含热线）、更新对话记忆
+                    String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(fullResponse.toString(), crisisResult);
+                    consultationMessageService.saveAimessage(dbSessionId, finalContent, "deepseek");
+                    List<Message> aiMessages = new ArrayList<>();
+                    aiMessages.add(new AssistantMessage(finalContent));
+                    chatMemory.add(conversationId, aiMessages);
+                })
+                .onErrorResume(error -> {
+                    // 即使大模型出错，如果有危机词也要把热线推给用户
+                    if (crisisResult.isTriggered()) {
+                        return Flux.just(CrisisSafetyFilter.MENTAL_HEALTH_HOTLINE)
+                                .concatWith(Flux.error(error));
                     }
-                    String hotlineOnly = finalContent.substring(aiContent.length());
-                    // 逐字推送：concatMap 保证顺序，delayElement 非阻塞延迟（替代 Thread.sleep）
-                    List<String> chars = new ArrayList<>();
-                    for (char c : hotlineOnly.toCharArray()) {
-                        chars.add(String.valueOf(c));
-                    }
-                    return Flux.fromIterable(chars)
-                            .concatMap(c -> Mono.just(c).delayElement(Duration.ofMillis(10)))
-                            .doOnNext(sink::next);
-                }));
-            }
-
-            mainStream
-                    .doOnComplete(() -> {
-                        // 收尾：保存最终回复（含热线）、更新对话记忆
-                        String finalContent = crisisSafetyFilter.appendHotlineIfNeeded(fullResponse.toString(), crisisResult);
-                        consultationMessageService.saveAimessage(dbSessionId, finalContent, "deepseek");
-                        List<Message> aiMessages = new ArrayList<>();
-                        aiMessages.add(new AssistantMessage(finalContent));
-                        chatMemory.add(conversationId, aiMessages);
-                        sink.complete();
-                    })
-                    .doOnError(error -> {
-                        // 即使大模型出错，如果有危机词也要把热线推给用户
-                        if (crisisResult.isTriggered()) {
-                            sink.next(CrisisSafetyFilter.MENTAL_HEALTH_HOTLINE);
-                        }
-                        sink.error(error);
-                    })
-                    .subscribe();
-        });
+                    return Flux.error(error);
+                });
     }
 
     /**
      * 当Prompt注入被拦截时，模拟流式逐字输出安全回复，不走大模型
      */
-    private void streamSafeReplyBlocking(reactor.core.publisher.FluxSink<String> sink,
-                                         Long dbSessionId,
-                                         String sessionId,
-                                         String safeReply) {
+    private Flux<String> streamSafeReply(Long dbSessionId, String sessionId, String safeReply) {
         StringBuilder sb = new StringBuilder();
         List<String> chunks = splitIntoChunks(safeReply, 3);
-        Flux.fromIterable(chunks)
+        return Flux.fromIterable(chunks)
                 .concatMap(c -> Mono.just(c).delayElement(Duration.ofMillis(40)))
-                .doOnNext(chunk -> {
-                    sb.append(chunk);
-                    sink.next(chunk);
-                })
+                .doOnNext(chunk -> sb.append(chunk))
                 .doOnComplete(() -> {
                     consultationMessageService.saveAimessage(dbSessionId, sb.toString(), "safety-guard");
                     String conversationId = "conversation_" + sessionId;
                     List<Message> aiMessages = new ArrayList<>();
                     aiMessages.add(new AssistantMessage(sb.toString()));
                     chatMemory.add(conversationId, aiMessages);
-                    sink.complete();
-                })
-                .doOnError(sink::error)
-                .subscribe();
+                });
     }
 
     /**

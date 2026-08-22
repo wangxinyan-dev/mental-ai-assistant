@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
@@ -48,5 +50,15 @@ public class PgVectorConfig {
     @Bean(name = "pgVectorJdbcTemplate")
     public JdbcTemplate pgVectorJdbcTemplate(@Qualifier("pgVectorDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
+    }
+
+    /**
+     * PgVector 事务管理器：用于影子表原子切换（RENAME 切换需在单事务内保证 DDL 原子性）。
+     * 独立于主数据源（MySQL）的默认事务管理器，避免 @Transactional 事务管理器歧义。
+     */
+    @Bean(name = "pgVectorTransactionManager")
+    public PlatformTransactionManager pgVectorTransactionManager(
+            @Qualifier("pgVectorDataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
     }
 }

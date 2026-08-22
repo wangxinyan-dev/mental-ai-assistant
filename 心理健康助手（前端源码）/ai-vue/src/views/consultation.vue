@@ -329,7 +329,7 @@ const startAIResponse = async (sessionId, userMessageText) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Token': localStorage.getItem('token'),
+                'Authorization': 'Bearer ' + localStorage.getItem('token'),
                 'Accept': 'text/event-stream'
             },
             body: JSON.stringify({ sessionId, userMessage: userMessageText })

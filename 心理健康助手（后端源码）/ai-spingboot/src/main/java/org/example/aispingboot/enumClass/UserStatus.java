@@ -26,4 +26,16 @@ public enum UserStatus {
         }
         throw new IllegalArgumentException("未知的用户状态代码: " + code);
     }
+
+    /**
+     * 验证用户状态代码是否有效
+     */
+    public static boolean isValidCode(Integer code) {
+        for (UserStatus status : UserStatus.values()) {
+            if (status.getCode().equals(code)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

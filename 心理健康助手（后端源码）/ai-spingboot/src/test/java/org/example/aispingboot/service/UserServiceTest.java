@@ -6,6 +6,8 @@ import org.example.aispingboot.DTO.command.UserRegisterCommandDTO;
 import org.example.aispingboot.DTO.response.UserLoginResponseDTO;
 import org.example.aispingboot.config.JwtConfig;
 import org.example.aispingboot.entity.User;
+import org.example.aispingboot.enumClass.UserStatus;
+import org.example.aispingboot.exception.BusinessException;
 import org.example.aispingboot.mapper.UserMapper;
 import org.example.aispingboot.util.JwtTokenUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,5 +100,51 @@ class UserServiceTest {
 
         assertNotNull(result);
         assertEquals("testuser", result.getUsername());
+    }
+
+    // ============ updateUserStatus（禁用/启用用户，本次新增） ============
+
+    @Test
+    void updateUserStatus_shouldDisableTargetUser() {
+        // Arrange：目标用户 2L，当前状态正常
+        User target = User.builder().id(2L).username("target").status(UserStatus.NORMAL.getCode()).build();
+        when(userMapper.selectById(2L)).thenReturn(target);
+
+        // Act：管理员 1L 禁用用户 2L
+        userService.updateUserStatus(1L, 2L, UserStatus.DISABLED.getCode());
+
+        // Assert：状态被改成禁用，且 updateById 被调用了一次
+        assertEquals(UserStatus.DISABLED.getCode(), target.getStatus());
+        verify(userMapper, times(1)).updateById(target);
+    }
+
+    @Test
+    void updateUserStatus_shouldThrow_whenInvalidStatus() {
+        // Act & Assert：传非法状态值 99，预期抛业务异常
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.updateUserStatus(1L, 2L, 99));
+
+        assertEquals("非法的用户状态", ex.getMessage());
+    }
+
+    @Test
+    void updateUserStatus_shouldThrow_whenDisableSelf() {
+        // Act & Assert：管理员 1L 试图禁用自己 1L
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.updateUserStatus(1L, 1L, UserStatus.DISABLED.getCode()));
+
+        assertEquals("不能修改自己的账号状态", ex.getMessage());
+    }
+
+    @Test
+    void updateUserStatus_shouldThrow_whenTargetNotFound() {
+        // Arrange：selectById 返回 null，表示目标用户不存在
+        when(userMapper.selectById(999L)).thenReturn(null);
+
+        // Act & Assert
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.updateUserStatus(1L, 999L, UserStatus.DISABLED.getCode()));
+
+        assertEquals("用户不存在", ex.getMessage());
     }
 }

@@ -13,7 +13,7 @@ service.interceptors.request.use(
     // 在发送请求之前做些什么
     const token = localStorage.getItem('token')
     if (token) {
-      config.headers['token'] = token
+      config.headers['Authorization'] = 'Bearer ' + token
     }
     return config
   },

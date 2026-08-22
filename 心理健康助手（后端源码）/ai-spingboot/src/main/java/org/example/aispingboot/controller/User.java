@@ -11,6 +11,7 @@ import org.example.aispingboot.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.example.aispingboot.util.JwtTokenUtil;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "用户管理", description = "用户登录、注册、个人信息接口")
@@ -38,13 +39,25 @@ public class User {
     // 获取当前用户
     @GetMapping("/current")
     public Result<UserLoginResponseDTO.UserDetailResponseDTO> getCurrentUser() {
-        // 如何从token中解析出用户的id
+        // 调用service层获取用户详情
+        UserLoginResponseDTO.UserDetailResponseDTO result = userService.getUserById(getCurrentUserId());
+        return Result.ok(result);
+    }
+
+    // 禁用/启用用户（仅管理员）
+    @Operation(summary = "禁用/启用用户（仅管理员）")
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<String> updateUserStatus(@PathVariable("id") Long id, @RequestParam("status") Integer status) {
+        userService.updateUserStatus(getCurrentUserId(), id, status);
+        return Result.ok("操作成功");
+    }
+
+    // 从当前请求的 JWT 中解析出用户 id
+    private Long getCurrentUserId() {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
-        Long userId = jwt.getClaim("userId").asLong();
-        // 调用service层获取用户详情
-        UserLoginResponseDTO.UserDetailResponseDTO result = userService.getUserById(userId);
-        return Result.ok(result);
+        return jwt.getClaim("userId").asLong();
     }
 
     // 退出登录

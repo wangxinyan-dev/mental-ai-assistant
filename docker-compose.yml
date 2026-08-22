@@ -36,8 +36,10 @@ services:
       POSTGRES_PASSWORD: ${PG_PASSWORD:-123456}
       POSTGRES_DB: rag_vector
       TZ: Asia/Shanghai
-    ports:
-      - "5432:5432"
+    # 不对外暴露端口，仅容器内网通信（backend 通过服务名 postgres:5432 访问）
+    # 如需用 pgAdmin 等工具连接查看，取消下行注释，改为 5433:5432
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -63,6 +65,9 @@ services:
       AI_API_KEY: ${AI_API_KEY:-you-key}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.siliconflow.cn}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V3}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
       PG_URL: jdbc:postgresql://postgres:5432/rag_vector
       PG_USERNAME: postgres
       PG_PASSWORD: ${PG_PASSWORD:-123456}

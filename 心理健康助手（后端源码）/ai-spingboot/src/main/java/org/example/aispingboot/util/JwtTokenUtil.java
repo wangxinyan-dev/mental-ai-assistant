@@ -63,9 +63,11 @@ public class JwtTokenUtil implements ApplicationContextAware {
             return null;
         }
 
-        String tokenHeader = request.getHeader("token");
-        if (StringUtils.hasText(tokenHeader)) {
-            return tokenHeader;
+        // 标准 Authorization: Bearer <token>，header 与前缀来自 jwt.header / jwt.token-prefix（与 yml 对齐）
+        JwtConfig jwtConfig = getJwtConfig();
+        String authHeader = request.getHeader(jwtConfig.getHeader());
+        if (StringUtils.hasText(authHeader) && authHeader.startsWith(jwtConfig.getTokenPrefix())) {
+            return authHeader.substring(jwtConfig.getTokenPrefix().length());
         }
         return null;
     }

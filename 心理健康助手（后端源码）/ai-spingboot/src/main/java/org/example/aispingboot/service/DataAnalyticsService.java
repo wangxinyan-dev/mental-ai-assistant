@@ -97,34 +97,52 @@ public class DataAnalyticsService {
     }
 
     private List<Map<String, Object>> getUserActivity() {
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.minusDays(29);
+        LocalDateTime startTime = startDate.atStartOfDay();
+        LocalDateTime endTime = today.plusDays(1).atStartOfDay();
+
+        // 一次性查询 30 天数据（原来循环 30 天 × 3 次 = 90 次 SQL，现降为 3 次）
+        List<User> recentUsers = userMapper.selectList(
+                new LambdaQueryWrapper<User>()
+                        .ge(User::getCreatedAt, startTime)
+                        .lt(User::getCreatedAt, endTime));
+        Map<LocalDate, Long> newUsersByDay = recentUsers.stream()
+                .collect(Collectors.groupingBy(u -> u.getCreatedAt().toLocalDate(), Collectors.counting()));
+
+        List<EmotionDiary> recentDiaries = diaryMapper.selectList(
+                new LambdaQueryWrapper<EmotionDiary>()
+                        .ge(EmotionDiary::getDiaryDate, startDate)
+                        .le(EmotionDiary::getDiaryDate, today));
+        Map<LocalDate, Set<Long>> diaryUsersByDay = new HashMap<>();
+        for (EmotionDiary d : recentDiaries) {
+            diaryUsersByDay.computeIfAbsent(d.getDiaryDate(), k -> new HashSet<>()).add(d.getUserId());
+        }
+
+        List<ConsultationSession> recentSessions = sessionMapper.selectList(
+                new LambdaQueryWrapper<ConsultationSession>()
+                        .ge(ConsultationSession::getStartedAt, startTime)
+                        .lt(ConsultationSession::getStartedAt, endTime));
+        Map<LocalDate, Set<Long>> sessionUsersByDay = new HashMap<>();
+        for (ConsultationSession s : recentSessions) {
+            sessionUsersByDay.computeIfAbsent(s.getStartedAt().toLocalDate(), k -> new HashSet<>()).add(s.getUserId());
+        }
+
+        // 组装 30 天结果
         List<Map<String, Object>> activity = new ArrayList<>();
         for (int i = 29; i >= 0; i--) {
-            LocalDate date = LocalDate.now().minusDays(i);
+            LocalDate date = today.minusDays(i);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("date", date.toString());
+            item.put("newUsers", newUsersByDay.getOrDefault(date, 0L));
 
-            // New users
-            item.put("newUsers", userMapper.selectCount(
-                    new LambdaQueryWrapper<User>()
-                            .ge(User::getCreatedAt, date.atStartOfDay())
-                            .lt(User::getCreatedAt, date.plusDays(1).atStartOfDay())));
+            Set<Long> diaryUsers = diaryUsersByDay.getOrDefault(date, Collections.emptySet());
+            Set<Long> sessionUsers = sessionUsersByDay.getOrDefault(date, Collections.emptySet());
+            item.put("diaryUsers", diaryUsers.size());
+            item.put("consultationUsers", sessionUsers.size());
 
-            // Diary users (distinct)
-            List<EmotionDiary> dayDiaries = diaryMapper.selectList(
-                    new LambdaQueryWrapper<EmotionDiary>().eq(EmotionDiary::getDiaryDate, date));
-            item.put("diaryUsers", dayDiaries.stream().map(EmotionDiary::getUserId).distinct().count());
-
-            // Consultation users
-            List<ConsultationSession> daySessions = sessionMapper.selectList(
-                    new LambdaQueryWrapper<ConsultationSession>()
-                            .ge(ConsultationSession::getStartedAt, date.atStartOfDay())
-                            .lt(ConsultationSession::getStartedAt, date.plusDays(1).atStartOfDay()));
-            item.put("consultationUsers", daySessions.stream().map(ConsultationSession::getUserId).distinct().count());
-
-            // Active users (either diary or consultation)
-            Set<Long> activeSet = new HashSet<>();
-            dayDiaries.forEach(d -> activeSet.add(d.getUserId()));
-            daySessions.forEach(s -> activeSet.add(s.getUserId()));
+            Set<Long> activeSet = new HashSet<>(diaryUsers);
+            activeSet.addAll(sessionUsers);
             item.put("activeUsers", activeSet.size());
 
             activity.add(item);

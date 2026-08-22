@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS knowledge_chunk (
     chunk_index INT NOT NULL COMMENT '分块序号',
     title VARCHAR(200) COMMENT '文章标题',
     content TEXT NOT NULL COMMENT '分块内容',
-    tfidf_vector JSON COMMENT 'TF-IDF向量（JSON格式）',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_article_id (article_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG知识库分块';

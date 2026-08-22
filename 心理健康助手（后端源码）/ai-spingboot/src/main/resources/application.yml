@@ -21,10 +21,10 @@ spring:
     openai:
       chat:
         options:
-          model: ${AI_MODEL:deepseek-chat}
+          model: ${AI_MODEL:deepseek-ai/DeepSeek-V3}
         completions-path: /v1/chat/completions
       api-key: ${AI_API_KEY:请填写AI服务API密钥}
-      base-url: ${AI_BASE_URL:https://api.deepseek.com}
+      base-url: ${AI_BASE_URL:https://api.siliconflow.cn}
       embedding:
         enabled: false  # 禁用自动配置的Embedding（DeepSeek不支持），使用自定义EmbeddingConfig
   servlet:

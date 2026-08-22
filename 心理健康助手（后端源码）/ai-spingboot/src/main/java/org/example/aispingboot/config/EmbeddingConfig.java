@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Primary;
  *
  * 设计说明：
  * DeepSeek API 不提供 Embedding 接口，因此 Chat 和 Embedding 使用不同的 API 端点。
- * 默认使用阿里云通义千问 DashScope（OpenAI 兼容接口），也可通过环境变量切换为其他提供商：
+ * 默认使用 SiliconFlow（OpenAI 兼容接口，免费），也可通过环境变量切换为其他提供商：
  *
  * 常见 Embedding 服务：
  * - 阿里云 DashScope: text-embedding-v3（1024维，中文效果好）
@@ -25,7 +25,7 @@ import org.springframework.context.annotation.Primary;
 @Configuration
 public class EmbeddingConfig {
 
-    @Value("${rag.embedding.base-url:https://dashscope.aliyuncs.com/compatible-mode}")
+    @Value("${rag.embedding.base-url:https://api.siliconflow.cn}")
     private String embeddingBaseUrl;
 
     @Value("${rag.embedding.api-key:}")
@@ -33,6 +33,10 @@ public class EmbeddingConfig {
 
     @Value("${rag.embedding.model:text-embedding-v3}")
     private String embeddingModelName;
+
+    public String getEmbeddingApiKey() {
+        return embeddingApiKey;
+    }
 
     @Bean
     @Primary

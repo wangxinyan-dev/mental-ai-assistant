@@ -43,4 +43,39 @@ public class RagAsyncTask {
                     triggerReason, cost, e.getMessage(), e);
         }
     }
+
+    /**
+     * 异步增量重建单篇文章的索引（新增/编辑文章时调用）
+     * 只重建这一篇，避免全量重建整库向量化的开销
+     */
+    @Async("ragTaskExecutor")
+    public void triggerRebuildArticle(Long articleId, String triggerReason) {
+        long start = System.currentTimeMillis();
+        try {
+            log.info("[RAG-ASYNC] 单篇索引重建开始，articleId: {}, 原因: {}", articleId, triggerReason);
+            int chunkCount = ragService.rebuildArticle(articleId);
+            log.info("[RAG-ASYNC] 单篇索引重建完成，articleId: {}, 分块数: {}, 耗时: {}ms",
+                    articleId, chunkCount, System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            log.error("[RAG-ASYNC] 单篇索引重建失败，articleId: {}, 原因: {}, 异常: {}",
+                    articleId, triggerReason, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 异步增量删除单篇文章的索引（删除/下线文章时调用）
+     */
+    @Async("ragTaskExecutor")
+    public void triggerDeleteArticle(Long articleId, String triggerReason) {
+        long start = System.currentTimeMillis();
+        try {
+            log.info("[RAG-ASYNC] 单篇索引删除开始，articleId: {}, 原因: {}", articleId, triggerReason);
+            ragService.deleteArticleVectors(articleId);
+            log.info("[RAG-ASYNC] 单篇索引删除完成，articleId: {}, 耗时: {}ms",
+                    articleId, System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            log.error("[RAG-ASYNC] 单篇索引删除失败，articleId: {}, 原因: {}, 异常: {}",
+                    articleId, triggerReason, e.getMessage(), e);
+        }
+    }
 }

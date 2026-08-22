@@ -1,6 +1,7 @@
 package org.example.aispingboot.config;
 
 import cn.hutool.core.text.AntPathMatcher;
+import jakarta.servlet.DispatcherType;
 import lombok.extern.slf4j.Slf4j;
 import org.example.aispingboot.util.JwtAuthticationFilter;
 import org.springframework.context.annotation.Bean;
@@ -59,7 +60,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
+                        // SSE 流式响应（异步请求）在 async dispatch 阶段会重新走过滤器链，
+                        // 此时 SecurityContext 已被清空，AuthorizationFilter 会误判为未认证抛 AccessDenied。
+                        // 放行 ASYNC/ERROR dispatch（认证在原始请求阶段已完成，无安全风险）
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthticationFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();

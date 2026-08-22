@@ -1,5 +1,7 @@
 package org.example.aispingboot.service;
 
+import java.time.LocalDateTime;
+
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
@@ -8,12 +10,14 @@ import org.example.aispingboot.DTO.command.UserRegisterCommandDTO;
 import org.example.aispingboot.DTO.response.UserLoginResponseDTO;
 import org.example.aispingboot.common.Result;
 import org.example.aispingboot.entity.User;
+import org.example.aispingboot.enumClass.UserStatus;
 import org.example.aispingboot.enumClass.UserType;
 import org.example.aispingboot.exception.BusinessException;
 import org.example.aispingboot.mapper.UserMapper;
 import org.example.aispingboot.service.convert.UserConvert;
 import org.example.aispingboot.util.JwtTokenUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -78,10 +82,9 @@ public class UserService {
             throw new BusinessException("邮箱已存在");
         }
 
-        // 用户类型
-        if (!UserType.isValidCode(commandDTO.getUserType())) {
-            throw new BusinessException("无效的用户类型");
-        }
+        // 安全规则：/api/user/add 在白名单中，任何人可调用。
+        // 不信任前端传入的 userType，强制注册为普通用户，杜绝越权提权（传 userType=2 也会被覆盖）。
+        commandDTO.setUserType(UserType.USER.getCode());
 
         // 创建用户
         String password = commandDTO.getPassword().trim();
@@ -100,5 +103,27 @@ public class UserService {
             throw new BusinessException("用户不存在");
         }
         return UserConvert.entityToDetailResponse(user);
+    }
+
+    /**
+     * 修改用户状态（禁用/启用），仅管理员调用。
+     * 主动清掉 userStatus 缓存，让 JwtAuthticationFilter 下一次请求立即读到最新状态，而不是等缓存 2 分钟自然过期。
+     */
+    @CacheEvict(value = "userStatus", key = "#targetUserId", cacheManager = "shortTtlCacheManager")
+    public void updateUserStatus(Long operatorId, Long targetUserId, Integer status) {
+        if (!UserStatus.isValidCode(status)) {
+            throw new BusinessException("非法的用户状态");
+        }
+        // 不能修改自己的状态，防止管理员把自己锁在系统外
+        if (operatorId != null && operatorId.equals(targetUserId)) {
+            throw new BusinessException("不能修改自己的账号状态");
+        }
+        User target = userMapper.selectById(targetUserId);
+        if (target == null) {
+            throw new BusinessException("用户不存在");
+        }
+        target.setStatus(status);
+        target.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(target);
     }
 }
