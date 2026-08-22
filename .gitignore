@@ -41,3 +41,6 @@ cp.txt
 
 # 个人准备材料（不入库）
 backup-demo-private/
+
+# 个人本地启动脚本（含本机 Docker 路径，不入库）
+start.bat
