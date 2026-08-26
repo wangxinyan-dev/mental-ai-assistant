@@ -1,8 +1,39 @@
 # 心灵守护者 - 心理健康助手
 
-基于 **Spring Boot 3 + Vue 3 + AI RAG** 的前后端分离心理健康咨询系统，支持 AI 心理对话、情绪日记、知识库管理、数据分析等功能。
+基于 **Spring Boot 3 + Spring AI + PgVector** 的前后端分离 AI 心理健康咨询系统，支持 RAG 检索增强的流式对话、情绪日记、知识库管理、数据分析等功能。
 
-> 项目定位：为用户提供温暖、专业的 AI 心理咨询服务，同时为管理员提供知识库和数据管理能力。
+![Java](https://img.shields.io/badge/Java-17-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![Vue](https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PgVector-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+
+> 一个前后端分离的 AI 心理咨询系统：SSE 流式对话 + RAG 语义检索增强 + 内容安全双防护。
+
+## ✨ 核心亮点
+
+- **RAG 检索系统 6 版技术演进**：零检索 → 自研 TF-IDF → Embedding 稠密向量 → PgVector + HNSW → 异步向量化 → 事务 + 批量 Embedding，完整踩坑与权衡记录（见下文）
+- **双库一致性**：MySQL（业务数据）+ PostgreSQL/pgvector（向量）双数据源，影子表原子切换，向量索引重建零空窗
+- **异步向量化**：`@Async` 独立线程池 + 批量 Embedding，发布文章 **10s → 200ms**，Embedding 调用次数 **降低 90%**
+- **安全加固**：越权注册修复、JWT 标准 Bearer、Prompt 注入拦截 + 危机识别双防护
+- **性能优化**：用户活跃度统计 SQL **90 → 3 次**、多级缓存、原子计数
+- **18 个单元测试** 全绿，Docker Compose 四容器一键部署
+
+## 🏗 系统架构
+
+```mermaid
+flowchart LR
+    FE["前端 Vue3 + Element Plus"] --> API["Spring Boot REST API"]
+    API --> SEC["Spring Security + JWT"]
+    SEC --> SVC["Service 层"]
+    SVC --> SAF["Prompt 注入 + 危机过滤"]
+    SVC --> RAG["RagService 检索"]
+    SVC --> DB[(MySQL 8)]
+    RAG --> PG[(PostgreSQL + pgvector)]
+    RAG --> LLM["LLM DeepSeek-V3"]
+    ASYNC["异步向量化线程池"] --> EMB["Embedding BGE"]
+    EMB --> PG
+```
 
 ---
 
@@ -130,6 +161,26 @@
 
 ---
 
+## ✅ 测试
+
+18 个单元测试全部通过，覆盖核心业务分支：
+
+| 测试文件 | 覆盖内容 | 用例数 |
+|---------|---------|-------|
+| `JwtTokenUtilTest` | JWT 生成/解析/过期/标准 Bearer 提取 | 4 |
+| `UserServiceTest` | 注册/登录/状态校验/越权防护 | 7 |
+| `KnowledgeServiceTest` | 知识库 CRUD / 增量重建触发 | 4 |
+| `UserStatusTest` | 状态码校验 | 3 |
+
+```bash
+# 运行单元测试（排除需真实数据库的集成测试 AiSpingbootApplicationTests）
+mvn test -Dtest='!AiSpingbootApplicationTests'
+```
+
+> 注：`AiSpingbootApplicationTests` 为 `@SpringBootTest` 集成测试，需真实 MySQL / PostgreSQL 环境，本地未起库时排除即可。
+
+---
+
 ## 部署
 
 ### 方式一：Docker Compose 一键启动
@@ -205,6 +256,20 @@ git checkout v1.0-base           # 回到初版体验
 
 ---
 
+## ⚠️ 已知局限
+
+| 局限 | 说明 | 可能的改进方向 |
+|------|------|--------------|
+| 跨库非强一致 | MySQL 与 PgVector 无法单事务原子提交，当前靠"先 MySQL 后 PG + 幂等重建"兜底 | 引入 JTA / XA 分布式事务 |
+| 规则引擎式安全过滤 | Prompt 注入 / 危机识别基于关键词黑名单，无法穷举，存在漏判误判 | 引入 LLM 分类器或安全模型 |
+| 异步向量化无反馈 | 异步任务失败不通知前端，需查日志 | 增加消息队列回调 / 告警 |
+| 对话记忆窗口固定 | 聊天历史固定 30 条窗口，超长对话丢失早期上下文 | 引入记忆摘要 / 分层记忆 |
+| 无操作审计日志 | 管理员操作无审计记录 | 接入审计切面 + 日志表 |
+
+---
+
 ## License
 
-个人学习 / 项目展示用途。请勿用于真实心理咨询场景——真实心理危机请拨打 **全国 24 小时心理援助热线：400-161-9995**。
+[MIT License](https://opensource.org/licenses/MIT)
+
+> ⚠️ 本项目为个人学习 / 项目展示用途，**请勿用于真实心理咨询场景**。真实心理危机请拨打 **全国 24 小时心理援助热线：400-161-9995**。
