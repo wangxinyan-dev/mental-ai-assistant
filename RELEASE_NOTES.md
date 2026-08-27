@@ -96,49 +96,6 @@ v2.0 是本项目的**第一个正式发布版本**，整合了从 v1.0 到 v2.0
 
 ---
 
-## 📦 部署方式
-
-### 方式一：Docker Compose 一键启动（推荐）
-
-```bash
-# 1. 克隆仓库（使用 v2.0 分支）
-git clone -b v2.0 https://gitee.com/yolo122/mental-ai-assistant.git mental-health
-cd mental-health
-
-# 2. 配置环境变量
-cp .env.example .env
-# 编辑 .env，填入真实密钥：
-#   DB_PASSWORD=你的MySQL密码
-#   PG_PASSWORD=你的PgVector密码
-#   JWT_SECRET=你的JWT签名密钥（生产务必改）
-#   AI_API_KEY=你的AI服务API密钥
-#   EMBEDDING_API_KEY=你的Embedding API密钥
-
-# 3. 一键启动
-docker compose up -d --build
-
-# 4. 访问
-# 前端：http://localhost:8080
-# 后端 API：http://localhost:1236
-# Swagger 文档：http://localhost:1236/doc.html
-# 健康检查：http://localhost:1236/actuator/health
-```
-
-### 方式二：本地开发
-
-```bash
-# 后端
-cd backend/ai-spingboot
-mvn spring-boot:run
-
-# 前端
-cd frontend/ai-vue
-npm install
-npm run dev
-```
-
----
-
 ## 🔐 安全配置清单
 
 部署前请务必配置以下环境变量（`.env` 文件）：
@@ -266,4 +223,3 @@ git log --oneline --graph --all --decorate
 
 ---
 
-*本发布说明由 v2.0 自动生成，详细变更记录请参考 [CHANGELOG.md](CHANGELOG.md)。*
