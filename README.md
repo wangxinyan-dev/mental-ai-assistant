@@ -154,10 +154,26 @@ ai_assistant2_0/
 | 机制 | 实现 |
 |------|------|
 | **密钥不入库** | 所有真实密钥由环境变量注入（`${DB_PASSWORD}` / `${AI_API_KEY}` 等），`application.yml` 默认值为占位符，`.env` 通过 `.gitignore` 排除 |
-| **JWT 过期处理** | 过滤器直接捕获 `TokenExpiredException`，返回 HTTP 401 + `A0231` 错误码，前端自动跳登录 |
+| **JWT 过期处理** | 过滤器直接捕获 `TokenExpiredException`，返回 HTTP 401 + `A0231` 错误码；前端响应拦截器将 `-1 / A0230 / A0231 / A0232` 统一识别为"登录态失效"，自动清除 token 并跳登录（修复记录见下节） |
 | **越权保护** | 路径白名单（SecurityConfig.PUBLIC_PATHS）+ 方法级 `@PreAuthorize("hasRole('ADMIN')")` 双保险 |
 | **Prompt 注入拦截** | 用户消息正则匹配 "忽略之前指令" / "角色扮演" / "system prompt" 等，**不调用 LLM 直接 403 返回** |
 | **危机安全过滤** | 对话中检测自杀/自残关键字，流式结束后自动追加 400-161-9995 心理热线；同时 System Prompt 中植入「危机处理优先」指令 |
+
+---
+
+## 🐛 修复记录
+
+> 无状态 JWT 项目里一次「退出登录死锁」的实战修复,完整根因与话术见 `docs/退出登录死锁-bug分析_面试材料.md`。
+
+### 2026-08-27:修复 token 过期后「退出登录」无反应
+
+| 现象 | 根因 | 修复 |
+|------|------|------|
+| token 过期后点「退出登录」没反应,反复弹「token已过期」 | ① 无状态 JWT 下退出本质是**前端删 token**,但代码把 `removeItem('token')` 放在了 `logout().then()` 里;token 过期时该请求被 `JwtAuthticationFilter` 在进入 controller 前拦截直接返回 `A0231`(见 `ResultCode`),Promise 必然 reject,清 token 永不执行 ② 前端拦截器只认 `-1` 才跳登录,`A0231` 落入普通错误分支,过期自动跳登录这条逃生通道也是关闭的 | ① 清除登录态与请求解耦:先 `removeItem('token')` + 跳登录,`logout()` 改为尽力通知(`.catch(() => {})`),失败不阻塞退出 ② 拦截器将 `-1 / A0230 / A0231 / A0232` 统一视为登录态失效,自动清 token + 跳登录 |
+
+**涉及文件**:`frontend/ai-vue/src/components/FrontendLayout.vue`、`frontend/ai-vue/src/components/Navbar.vue`、`frontend/ai-vue/src/utils/request.js`
+
+**验证**:`npm run build` 通过(exit 0);后端无改动。
 
 ---
 
