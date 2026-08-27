@@ -96,12 +96,12 @@ const handleLogout = () => {
         cancelButtonText: '取消',
         type: 'warning'
     }).then(() => {
-        logout().then(() => {
-            localStorage.removeItem('token')
-            localStorage.removeItem('userInfo')
-            isLoggedIn.value = false
-            router.push('/auth/login')
-        })
+        // token 可能已过期：先清除本地登录态并跳转（不依赖后端成功），logout 仅尽力通知
+        localStorage.removeItem('token')
+        localStorage.removeItem('userInfo')
+        isLoggedIn.value = false
+        router.push('/auth/login')
+        logout().catch(() => {})
     })
 }
 
