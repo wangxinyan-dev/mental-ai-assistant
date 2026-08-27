@@ -67,8 +67,8 @@ flowchart LR
 ## 项目结构
 
 ```
-心理健康助手/
-├── 心理健康助手（后端源码）/ai-spingboot/      # Spring Boot 后端
+ai_assistant2_0/
+├── backend/ai-spingboot/                        # Spring Boot 后端
 │   ├── src/main/java/org/example/aispingboot
 │   │   ├── AiService/                            # AI 对话 & RAG 检索核心
 │   │   │   ├── rag/                               #   RagService + RagAsyncTask
@@ -82,7 +82,7 @@ flowchart LR
 │   ├── sql/init.sql                               # 数据库初始化脚本
 │   └── Dockerfile / docker-compose.yml            # 独立部署配置
 │
-├── 心理健康助手（前端源码）/ai-vue/               # Vue 3 前端
+├── frontend/ai-vue/                              # Vue 3 前端
 │   ├── src/views/                                 # 页面（用户端 + 管理端）
 │   ├── src/components/                            # 公共组件（可爱机器人、布局等）
 │   ├── src/api/                                   # 请求封装

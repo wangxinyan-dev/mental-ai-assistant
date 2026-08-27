@@ -128,11 +128,11 @@ docker compose up -d --build
 
 ```bash
 # 后端
-cd 心理健康助手（后端源码）/ai-spingboot
+cd backend/ai-spingboot
 mvn spring-boot:run
 
 # 前端
-cd 心理健康助手（前端源码）/ai-vue
+cd frontend/ai-vue
 npm install
 npm run dev
 ```

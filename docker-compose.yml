@@ -20,7 +20,7 @@ services:
     #   - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./心理健康助手（后端源码）/ai-spingboot/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backend/ai-spingboot/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -50,7 +50,7 @@ services:
 
   backend:
     build:
-      context: ./心理健康助手（后端源码）/ai-spingboot
+      context: ./backend/ai-spingboot
       dockerfile: Dockerfile
     container_name: mental-health-backend
     restart: unless-stopped
@@ -83,7 +83,7 @@ services:
 
   frontend:
     build:
-      context: ./心理健康助手（前端源码）/ai-vue
+      context: ./frontend/ai-vue
       dockerfile: Dockerfile
     container_name: mental-health-frontend
     restart: unless-stopped

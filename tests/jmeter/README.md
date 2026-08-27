@@ -30,7 +30,7 @@ VALUES ('测试文章-压测用', '这是一篇测试文章', 1, 1, 1);
 ```bash
 # 进入 JMeter bin 目录
 cd %JMETER_HOME%\bin
-jmeter -t e:\agent\心理健康助手\tests\jmeter\mental-health-load-test.jmx
+jmeter -t e:\agent\ai_assistant2_0\tests\jmeter\mental-health-load-test.jmx
 ```
 
 或在 GUI 中：File → Open → 选择 `mental-health-load-test.jmx`
