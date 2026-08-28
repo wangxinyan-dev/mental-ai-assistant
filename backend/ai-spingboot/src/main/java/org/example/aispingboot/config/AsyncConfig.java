@@ -43,4 +43,28 @@ public class AsyncConfig {
         log.info("RAG 异步线程池已初始化: core=2, max=4, queue=10, reject=DiscardOldestPolicy");
         return executor;
     }
+
+    /**
+     * 审计日志落库专用线程池
+     *
+     * 与 ragTaskExecutor 的拒绝策略刻意不同（面试串讲点）：
+     * - ragTaskExecutor 用 DiscardOldestPolicy：任务幂等，队列满丢最老，保最新变更；
+     * - auditLogExecutor 用 CallerRunsPolicy：审计不能丢、不能让业务失败，队列满时\n     *   回退到调用线程同步写，宁可慢一拍也不丢记录。
+     * 两种策略由「任务特性」决定——同一问题的两个答案，这是拒绝策略选型的核心。
+     */
+    @Bean("auditLogExecutor")
+    public ThreadPoolTaskExecutor auditLogExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("audit-log-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        log.info("审计日志线程池已初始化: core=2, max=4, queue=100, reject=CallerRunsPolicy");
+        return executor;
+    }
 }

@@ -1,6 +1,7 @@
 package org.example.aispingboot.controller;
 
 import com.auth0.jwt.interfaces.DecodedJWT;
+import org.example.aispingboot.annotation.AuditLog;
 import org.example.aispingboot.common.Result;
 import org.example.aispingboot.entity.KnowledgeArticle;
 import org.example.aispingboot.service.KnowledgeService;
@@ -43,6 +44,7 @@ public class Knowledge {
 
     @PostMapping("/article")
     @PreAuthorize("hasRole('ADMIN')")
+    @AuditLog(action = "create_article", module = "knowledge")
     public Result<String> createArticle(@RequestBody Map<String, Object> dto) {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
@@ -53,6 +55,7 @@ public class Knowledge {
 
     @PutMapping("/article/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @AuditLog(action = "update_article", module = "knowledge")
     public Result<String> updateArticle(@PathVariable Long id, @RequestBody Map<String, Object> dto) {
         String token = JwtTokenUtil.getCurrentToken();
         DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
@@ -63,6 +66,7 @@ public class Knowledge {
 
     @PutMapping("/article/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")
+    @AuditLog(action = "update_article_status", module = "knowledge")
     public Result<String> updateStatus(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         knowledgeService.updateStatus(id, toInt(body.get("status")));
         return Result.ok("状态更新成功");
@@ -70,6 +74,7 @@ public class Knowledge {
 
     @DeleteMapping("/article/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @AuditLog(action = "delete_article", module = "knowledge")
     public Result<String> deleteArticle(@PathVariable Long id) {
         knowledgeService.deleteArticle(id);
         return Result.ok("删除成功");

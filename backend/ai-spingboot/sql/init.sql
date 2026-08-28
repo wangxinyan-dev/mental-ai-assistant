@@ -98,6 +98,25 @@ CREATE TABLE IF NOT EXISTS emotion_diary (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 操作审计日志表
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT COMMENT '操作人ID，匿名/解析不到为NULL',
+    username VARCHAR(50) COMMENT '操作人用户名（冗余），便于直接看表',
+    module VARCHAR(50) COMMENT '模块：knowledge/user等',
+    action VARCHAR(100) COMMENT '动作：create_article/update_user_status等',
+    target_id VARCHAR(50) COMMENT '操作对象ID（第一个Long入参）',
+    detail VARCHAR(500) COMMENT '入参快照（JSON截断）',
+    result INT DEFAULT 0 COMMENT '0:成功 1:失败',
+    error_msg VARCHAR(500) COMMENT '失败原因',
+    ip VARCHAR(50) COMMENT '客户端IP',
+    cost_ms INT COMMENT '方法耗时(ms)',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_created_at (created_at),
+    INDEX idx_user_id (user_id),
+    INDEX idx_module_action (module, action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计';
+
 -- 默认分类
 INSERT IGNORE INTO knowledge_category (category_name, sort_order) VALUES
 ('情绪管理', 1), ('压力应对', 2), ('冥想正念', 3), ('人际关系', 4),

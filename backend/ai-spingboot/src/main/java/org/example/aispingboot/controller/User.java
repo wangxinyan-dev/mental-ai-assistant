@@ -10,6 +10,7 @@ import org.example.aispingboot.common.Result;
 import org.example.aispingboot.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.example.aispingboot.annotation.AuditLog;
 import org.example.aispingboot.util.JwtTokenUtil;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -48,6 +49,7 @@ public class User {
     @Operation(summary = "禁用/启用用户（仅管理员）")
     @PutMapping("/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")
+    @AuditLog(action = "update_user_status", module = "user")
     public Result<String> updateUserStatus(@PathVariable("id") Long id, @RequestParam("status") Integer status) {
         userService.updateUserStatus(getCurrentUserId(), id, status);
         return Result.ok("操作成功");
