@@ -216,11 +216,40 @@ docker compose up -d --build
 
 ### 方式二：本地开发
 
-> **前置**：需要 MySQL 8（库 `mental_health_assistant`，导入 `sql/init.sql` 建表）与 PostgreSQL 16 + pgvector（库 `rag_vector`）。偷懒方案：`docker compose up -d mysql postgres` 只起两个数据库容器（密码默认 `change-me-in-production`）。
-> 还需设置环境变量：`DB_PASSWORD`、`AI_API_KEY`、`EMBEDDING_API_KEY`（不设则用占位默认值，启动或 RAG 功能会失败）。
+> **前置警告**：本项目 `docker-compose.yml` 里的 mysql / postgres 服务**只供容器内网互通，不对宿主机开放端口**（本地 JVM 连不上 `localhost:3306 / 5432`）。因此方式二**不能**用 `docker compose up -d mysql postgres` 当偷懒方案，需单独起两个**对外开放端口**的库容器，或使用本机已有的 MySQL / PostgreSQL。
+
+**① 准备 MySQL（localhost:3306，库名 `mental_health_assistant`）**
+
+```bash
+# 方式 A：Docker 起一个对外暴露 3306 的 MySQL（自动建库 + 建表）
+docker run -d --name mia-mysql -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=change-me-in-production \
+  -e MYSQL_DATABASE=mental_health_assistant \
+  -v "$(pwd)/backend/ai-spingboot/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro" \
+  mysql:8.0
+
+# 方式 B：已有本机 MySQL 8 —— 建库后导入表结构
+mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS mental_health_assistant DEFAULT CHARSET utf8mb4;"
+mysql -uroot -p mental_health_assistant < backend/ai-spingboot/sql/init.sql
+```
+
+**② 准备 PostgreSQL 16 + pgvector（localhost:5432，库名 `rag_vector`，表由后端启动自动创建）**
+
+```bash
+docker run -d --name mia-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=change-me-in-production \
+  -e POSTGRES_DB=rag_vector \
+  pgvector/pgvector:pg16
+```
+
+**③ 设置环境变量并启动**（密码必须与上面容器一致；AI 密钥见 `.env.example`）
 
 ```bash
 # 后端（dev profile，默认端口 1236）
+export DB_PASSWORD=change-me-in-production \
+       PG_PASSWORD=change-me-in-production \
+       AI_API_KEY=你的key \
+       EMBEDDING_API_KEY=你的key
 cd backend/ai-spingboot
 mvn spring-boot:run
 
