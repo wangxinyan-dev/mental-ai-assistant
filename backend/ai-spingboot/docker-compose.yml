@@ -5,7 +5,7 @@ services:
     image: mysql:8.0
     container_name: mental-health-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-change-me-in-production}
       MYSQL_DATABASE: mental_health_assistant
     ports:
       - "3306:3306"
@@ -26,7 +26,7 @@ services:
     environment:
       SERVER_PORT: 1236
       DB_USERNAME: root
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me-in-production}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       AI_API_KEY: ${AI_API_KEY:-you-key}
       SPRING_PROFILES_ACTIVE: prod
