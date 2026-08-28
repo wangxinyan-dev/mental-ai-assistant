@@ -110,6 +110,15 @@
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
             <version>4.5.0</version>
         </dependency>
+        <!-- 显式固定 springdoc 版本：knife4j 4.5.0 传递的 2.3.0 与 Spring Boot 3.5(Spring 6.2) 不兼容
+             （运行时 NoSuchMethodError: ControllerAdviceBean.<init>(Object)，doc.html 打开报 500）。
+             2.3.0/2.6.0 均不兼容 Spring 6.2（该构造器已被移除）；2.8.x 起适配 Boot 3.4/3.5。
+             显式声明同 artifact 版本优先级高于传递依赖，压过 2.3.0 → 2.8.17。 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.17</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
