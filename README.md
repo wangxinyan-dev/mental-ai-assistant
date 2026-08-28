@@ -216,15 +216,18 @@ docker compose up -d --build
 
 ### 方式二：本地开发
 
-```bash
-# 后端
-cd ai-spingboot
-mvn spring-boot:run   # 默认端口 1236，使用 dev profile
+> **前置**：需要 MySQL 8（库 `mental_health_assistant`，导入 `sql/init.sql` 建表）与 PostgreSQL 16 + pgvector（库 `rag_vector`）。偷懒方案：`docker compose up -d mysql postgres` 只起两个数据库容器（密码默认 `change-me-in-production`）。
+> 还需设置环境变量：`DB_PASSWORD`、`AI_API_KEY`、`EMBEDDING_API_KEY`（不设则用占位默认值，启动或 RAG 功能会失败）。
 
-# 前端
-cd ai-vue
+```bash
+# 后端（dev profile，默认端口 1236）
+cd backend/ai-spingboot
+mvn spring-boot:run
+
+# 前端（默认端口 5173，已配置 /api 代理到 1236）
+cd frontend/ai-vue
 npm install
-npm run dev           # 默认端口 5173，已配置 /api 代理到 1236
+npm run dev
 ```
 
 ---
