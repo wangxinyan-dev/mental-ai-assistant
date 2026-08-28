@@ -34,8 +34,24 @@ public class EmbeddingConfig {
     @Value("${rag.embedding.model:text-embedding-v3}")
     private String embeddingModelName;
 
+    /** 批量 Embedding 调用失败重试最大次数（含首次），默认 3 次 */
+    @Value("${rag.embedding.retry.max-attempts:3}")
+    private int embeddingRetryMaxAttempts;
+
+    /** 指数退避初始间隔（毫秒），默认 500ms，第 N 次失败后等待 500 * 2^(N-1) ms */
+    @Value("${rag.embedding.retry.initial-backoff-ms:500}")
+    private long embeddingRetryInitialBackoffMs;
+
     public String getEmbeddingApiKey() {
         return embeddingApiKey;
+    }
+
+    public int getEmbeddingRetryMaxAttempts() {
+        return embeddingRetryMaxAttempts;
+    }
+
+    public long getEmbeddingRetryInitialBackoffMs() {
+        return embeddingRetryInitialBackoffMs;
     }
 
     @Bean

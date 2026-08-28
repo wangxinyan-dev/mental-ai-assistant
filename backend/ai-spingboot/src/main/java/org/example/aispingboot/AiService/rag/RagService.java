@@ -506,7 +506,12 @@ public class RagService {
                     .map(ChunkBatchItem::chunkText)
                     .toList();
             EmbeddingRequest request = new EmbeddingRequest(batchTexts, null);
-            EmbeddingResponse response = embeddingModel.call(request);
+            EmbeddingResponse response = callWithRetry(request);
+            // 3 次重试全部失败返回 null：跳过整批（幂等重建可补齐），不中断其余批次与影子表切换
+            if (response == null) {
+                log.warn("[RAG-EMBED-RETRY] 重试耗尽，跳过本批 {} 条，继续下一批", batch.size());
+                continue;
+            }
 
             if (response.getResults().size() != batch.size()) {
                 throw new IllegalStateException(String.format(
@@ -540,6 +545,54 @@ public class RagService {
                 chunkCount, targetTable, EMBEDDING_BATCH_SIZE, embeddingCost,
                 String.format("%.0f", embeddingCost * 1.0 / chunkCount));
         return chunkCount;
+    }
+
+    /**
+     * 带重试的 Embedding 批量调用（3 次 + 指数退避）。
+     *
+     * 重试 catch 到的是 call() 本身抛出的异常——真实链路中几乎全是瞬时抖动类
+     * （网络超时 / 5xx / 限流）。成功即返回。
+     *
+     * 注意「确定性错误不重试」的真实边界：条数/维度校验并不在 callWithRetry 内，
+     * 而是在 embedAndInsert 对 call() 返回结果之后的检查中抛异常，从而不进入本重试圈
+     * （那类错误由校验层拦截、触发整体回滚/影子表丢弃）。故无需在重试内按异常类型过滤
+     * ——若未来 call() 自身抛确定性错误成为可能，再考虑按类型区分瞬时/确定性。
+     *
+     * 失败语义（与「整批失败→整体回滚」互补）：
+     * - 瞬时抖动 → 重试自愈，调用方感知不到失败；
+     * - 3 次重试耗尽 → 返回 null =「跳过整批」而非「失败」。调用方 continue 到下一批，
+     *   其余批次与影子表切换不被阻塞；被跳过的分块向量暂时缺失，下一次幂等全量重建自动补齐。
+     *
+     * 注意：退避用 Thread.sleep 占用的是 ragTaskExecutor 线程池线程（core=2 场景下可接受）；
+     * 若未来重建变高频，应改为异步重试（Flux.retryWhen / Resilience4j Retry）避免线程阻塞。
+     */
+    EmbeddingResponse callWithRetry(EmbeddingRequest request) {
+        int maxAttempts = embeddingConfig.getEmbeddingRetryMaxAttempts();
+        long initialBackoffMs = embeddingConfig.getEmbeddingRetryInitialBackoffMs();
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                EmbeddingResponse response = embeddingModel.call(request);
+                return response;
+            } catch (Exception e) {
+                if (attempt == maxAttempts) {
+                    log.error("[RAG-EMBED-RETRY] 连续 {} 次失败，跳过本批（{} 条），原因: {}",
+                            maxAttempts, request.getInstructions().size(), e.getMessage());
+                    return null;
+                }
+                // 指数退避：第 1 次失败等 500ms，第 2 次等 1000ms
+                long backoffMs = initialBackoffMs * (1L << (attempt - 1));
+                log.warn("[RAG-EMBED-RETRY] 第 {} 次调用失败，{}ms 后重试，原因: {}",
+                        attempt, backoffMs, e.getMessage());
+                try {
+                    Thread.sleep(backoffMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.error("[RAG-EMBED-RETRY] 退避等待被中断，跳过本批", ie);
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     /**

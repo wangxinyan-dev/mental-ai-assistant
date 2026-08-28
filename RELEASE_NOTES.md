@@ -39,6 +39,7 @@ v2.0 是本项目的**第一个正式发布版本**，整合了从 v1.0 到 v2.0
 - [性能] `RagService.rebuildIndex()` 加 `@Transactional(rollbackFor=Exception.class)`，MySQL 侧原子化
 - [性能] Embedding 从逐条改为 10 条批量调用，HTTP round-trip -90%
 - [健壮性] 批量 Embedding 返回数量 mismatch 主动抛 `IllegalStateException` 触发事务回滚
+- [健壮性] Embedding API 调用加 3 次重试 + 指数退避（默认 500ms→1000ms，可配置），吞掉免费版瞬时抖动；重试耗尽跳过整批，不阻塞其余批次与影子表切换，被跳过分块由幂等全量重建补齐
 - [细节] ResultCode Token 系列错误码从重复的 `A0230` 改为递增的 `A0230/A0231/A0232/A0233`
 - [工程] 根 `.gitignore` 补全 `node_modules/` `dist/` `pg-data/` `.DS_Store` 等
 

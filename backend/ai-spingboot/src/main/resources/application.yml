@@ -58,6 +58,11 @@ rag:
     base-url: ${EMBEDDING_BASE_URL:https://api.siliconflow.cn}
     api-key: ${EMBEDDING_API_KEY:}
     model: ${EMBEDDING_MODEL:BAAI/bge-large-zh-v1.5}
+    # Embedding API 调用重试（对抗免费 API 瞬时限流/5xx）：指数退避，耗尽后跳过整批
+    # max-attempts: 重试次数含首次调用；initial-backoff-ms: 第 1 次失败后等待的初始间隔，之后每次翻倍
+    retry:
+      max-attempts: ${EMBEDDING_RETRY_MAX_ATTEMPTS:3}
+      initial-backoff-ms: ${EMBEDDING_RETRY_INITIAL_BACKOFF_MS:500}
   # 向量存储（PgVector，独立于MySQL的PostgreSQL向量数据库）
   vector-store:
     pg:
