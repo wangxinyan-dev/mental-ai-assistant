@@ -32,6 +32,11 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
+# 操作审计日志分区保留策略（保留最近 N 个月，更早的按月 DROP PARTITION）
+audit-log:
+  partition:
+    retention-months: ${AUDIT_LOG_RETENTION_MONTHS:12}
+
 file:
   upload:
     path: ./uploads

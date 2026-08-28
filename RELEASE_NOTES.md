@@ -41,6 +41,8 @@ v2.0 是本项目的**第一个正式发布版本**，整合了从 v1.0 到 v2.0
 - [健壮性] 批量 Embedding 返回数量 mismatch 主动抛 `IllegalStateException` 触发事务回滚
 - [健壮性] Embedding API 调用加 3 次重试 + 指数退避（默认 500ms→1000ms，可配置），吞掉免费版瞬时抖动；重试耗尽跳过整批，不阻塞其余批次与影子表切换，被跳过分块由幂等全量重建补齐
 - [新功能] 操作审计日志：`@AuditLog` 注解 + AOP 切面 + 独立线程池 `auditLogExecutor` 异步落库 `audit_log` 表，知识文章发布/更新/删除、文章状态、用户禁用等写接口留痕（操作人/目标/入参快照/结果/耗时/IP）
+- [新功能] audit_log 按月 RANGE 分区 + `AuditLogPartitionTask` 每日维护：过期分区 `DROP PARTITION`（O(1) 秒删，无大事务），保留期 `audit-log.partition.retention-months` 配置化（默认 12）。分区表硬约束：主键升级为 `(id, created_at)`
+- [修复] 多数据源 JdbcTemplate 路由歧义：`AuditLogPartitionService` 原先 @Resource 误注入 PG 的 `pgVectorJdbcTemplate`（`information_schema.PARTITIONS` 是 MySQL 专有表导致 SQL 报错）；显式声明 `mysqlJdbcTemplate` bean + `@Qualifier` 绑定主库，与其他数据源「独立访问路径」模式一致
 - [细节] ResultCode Token 系列错误码从重复的 `A0230` 改为递增的 `A0230/A0231/A0232/A0233`
 - [工程] 根 `.gitignore` 补全 `node_modules/` `dist/` `pg-data/` `.DS_Store` 等
 

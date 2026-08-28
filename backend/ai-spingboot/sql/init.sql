@@ -98,9 +98,12 @@ CREATE TABLE IF NOT EXISTS emotion_diary (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 操作审计日志表
+-- 操作审计日志表（按月 RANGE 分区）
+-- 分区表硬约束：主键必须包含分区键列，故主键为 (id, created_at)
+-- 建表只含当月分区；之后每月由 AuditLogPartitionTask 自动 ADD 下月分区，
+-- 保留期外（默认12个月）的分区由定时任务 DROP PARTITION（O(1) 秒删）
 CREATE TABLE IF NOT EXISTS audit_log (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT NOT NULL AUTO_INCREMENT,
     user_id BIGINT COMMENT '操作人ID，匿名/解析不到为NULL',
     username VARCHAR(50) COMMENT '操作人用户名（冗余），便于直接看表',
     module VARCHAR(50) COMMENT '模块：knowledge/user等',
@@ -112,10 +115,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
     ip VARCHAR(50) COMMENT '客户端IP',
     cost_ms INT COMMENT '方法耗时(ms)',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, created_at),
     INDEX idx_created_at (created_at),
     INDEX idx_user_id (user_id),
     INDEX idx_module_action (module, action)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计'
+PARTITION BY RANGE (TO_DAYS(created_at)) (
+    PARTITION p202608 VALUES LESS THAN (TO_DAYS('2026-09-01'))
+);
 
 -- 默认分类
 INSERT IGNORE INTO knowledge_category (category_name, sort_order) VALUES

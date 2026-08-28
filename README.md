@@ -16,8 +16,9 @@
 - **双库一致性**：MySQL（业务数据）+ PostgreSQL/pgvector（向量）双数据源，影子表原子切换，向量索引重建零空窗
 - **异步向量化**：`@Async` 独立线程池 + 批量 Embedding，发布文章 **10s → 200ms**，Embedding 调用次数 **降低 90%**
 - **安全加固**：越权注册修复、JWT 标准 Bearer、Prompt 注入拦截 + 危机识别双防护
+- **操作审计日志**：`@AuditLog` 注解 + AOP 切面异步落库（操作人/目标/入参快照/结果/耗时/IP），按月 RANGE 分区 + 定时 `DROP PARTITION` 维护，保留期可配置（默认 12 个月）
 - **性能优化**：用户活跃度统计 SQL **90 → 3 次**、多级缓存、原子计数
-- **18 个单元测试** 全绿，Docker Compose 四容器一键部署
+- **34 个单元测试** 全绿，Docker Compose 四容器一键部署
 
 ## 🏗 系统架构
 
@@ -105,6 +106,7 @@ ai_assistant2_0/
 | 危机安全机制 | 对话中检测到自杀/自残等关键字 → 自动追加 **全国 24h 心理热线：400-161-9995** |
 | 情绪日记 | 用户记录每日情绪 / 分数 / 日记内容，前端折线图展示趋势，AI 生成关怀建议 |
 | 知识库管理（管理员） | 分类 CRUD、文章富文本编辑、发布状态管理 |
+| 操作审计日志 | `@AuditLog` 注解 + AOP 切面异步落库 `audit_log`：操作人/目标/入参快照/结果/耗时/IP；按月 RANGE 分区维护，过期分区 `DROP PARTITION`（默认保留 12 个月） |
 | RAG 知识检索 | 文章发布后自动向量化存入 PgVector，用户对话时 Top-3 语义匹配注入 Prompt |
 | 数据分析（管理员） | 用户注册趋势、咨询统计、情绪分布等可视化 |
 | 文件上传 | 本地文件存储 + 静态资源映射 + 类型/大小校验 |
@@ -177,7 +179,7 @@ ai_assistant2_0/
 
 ## ✅ 测试
 
-18 个单元测试全部通过，覆盖核心业务分支：
+34 个单元测试全部通过，覆盖核心业务分支：
 
 | 测试文件 | 覆盖内容 | 用例数 |
 |---------|---------|-------|
@@ -185,6 +187,11 @@ ai_assistant2_0/
 | `UserServiceTest` | 注册/登录/状态校验/越权防护 | 7 |
 | `KnowledgeServiceTest` | 知识库 CRUD / 增量重建触发 | 4 |
 | `UserStatusTest` | 状态码校验 | 3 |
+| `RagServiceRetryTest` | 批量 Embedding 重试/指数退避/返回数量校验 | 4 |
+| `AuditLogAspectTest` | 审计切面：成功/失败两路径、目标 id/入参快照/耗时 | 5 |
+| `AuditLogPartitionServiceTest` | 分区命名/下月首日/保留截止/ADD / DROP 判定 | 7 |
+
+> 本机无数据库时，`AiSpingbootApplicationTests` 集成测试会因连不上 MySQL 失败——这是环境限制，非业务代码回归，运行前会排除（见下方命令）。
 
 ```bash
 # 运行单元测试（排除需真实数据库的集成测试 AiSpingbootApplicationTests）
