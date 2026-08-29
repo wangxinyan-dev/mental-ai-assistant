@@ -26,7 +26,7 @@ public class PgVectorConfig {
     @Value("${rag.vector-store.pg.username:postgres}")
     private String pgUsername;
 
-    @Value("${rag.vector-store.pg.password:123456}")
+    @Value("${rag.vector-store.pg.password:change-me-in-production}")
     private String pgPassword;
 
     @Bean(name = "pgVectorDataSource")
