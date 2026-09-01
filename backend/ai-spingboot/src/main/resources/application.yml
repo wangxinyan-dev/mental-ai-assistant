@@ -68,6 +68,16 @@ rag:
     retry:
       max-attempts: ${EMBEDDING_RETRY_MAX_ATTEMPTS:3}
       initial-backoff-ms: ${EMBEDDING_RETRY_INITIAL_BACKOFF_MS:500}
+  # Rerank 精排（两级检索第二级，cross-encoder 对粗召回候选重排序，提升 Top-K 质量）
+  # 默认关闭；开启需配 RERANK_API_KEY（一般复用 EMBEDDING_API_KEY/SILICONFLOW 同一把 key）。
+  # 未开启或未配 key 时，检索自动降级为「仅向量粗召回 Top-3」，不影响启动。
+  rerank:
+    enabled: ${RAG_RERANK_ENABLED:false}
+    api-key: ${RERANK_API_KEY:}
+    base-url: ${RERANK_BASE_URL:https://api.siliconflow.cn}
+    model: ${RERANK_MODEL:BAAI/bge-reranker-v2-m3}
+    recall-n: ${RAG_RERANK_RECALL_N:20}   # 粗召回候选数（送进 rerank 精排）
+    top-k: ${RAG_RERANK_TOP_K:3}          # 精排后返回条数
   # 向量存储（PgVector，独立于MySQL的PostgreSQL向量数据库）
   vector-store:
     pg:

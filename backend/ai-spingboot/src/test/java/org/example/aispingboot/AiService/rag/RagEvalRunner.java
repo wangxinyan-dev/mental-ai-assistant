@@ -255,14 +255,14 @@ class RagEvalRunner {
                                          RerankClient rerank, int recallN, int topK) {
         int total = eval.questions().size();
         int[] hits = new int[3];
-        TwoStageRetrievalService svc = new TwoStageRetrievalService(rerank, recallN);
         for (RagEvalSet.EvalQuestion q : eval.questions()) {
             float[] qv = embeddingModel.embed(q.question());
             String sql = "SELECT content FROM " + table +
                     " ORDER BY embedding <=> ?::vector LIMIT " + recallN;
             List<String> candidates = pg.query(sql, (rs, n) -> rs.getString("content"), toPgVector(qv));
 
-            List<RerankClient.RerankResult> top = svc.rerankDocuments(q.question(), candidates, topK);
+            // 直接把候选交给 rerank 精排取 topK（先前经 TwoStageRetrievalService 转发，纯冗余已内联）
+            List<RerankClient.RerankResult> top = rerank.rerank(q.question(), candidates, topK);
             for (int k = 0; k < 3; k++) {
                 boolean hit = false;
                 for (int i = 0; i <= k && i < top.size(); i++) {

@@ -67,6 +67,14 @@ public class RagService {
     @Autowired
     private EmbeddingConfig embeddingConfig;
 
+    /**
+     * 两级检索第二级：cross-encoder 精排（可选，未配置时为 null → 降级为仅向量粗召回）。
+     * 用 ObjectProvider 注入：EmbeddingConfig 在未开启/未配 key 时注册 null bean，
+     * getIfAvailable() 返回 null，避免直接注入导致启动失败。
+     */
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<RerankClient> rerankClientProvider;
+
     @Autowired
     @Qualifier("pgVectorTransactionManager")
     private PlatformTransactionManager pgTransactionManager;
@@ -74,7 +82,6 @@ public class RagService {
     @Value("${rag.vector-store.pg.dimension:1024}")
     private int embeddingDimension;
 
-    private static final int TOP_K = 3;
     private static final double SIMILARITY_THRESHOLD = 0.5;
     private static final int MAX_CONTEXT_CHARS = 1500;
     private static final int EMBEDDING_BATCH_SIZE = 10;
@@ -234,10 +241,15 @@ public class RagService {
     }
 
     /**
-     * 检索与用户消息最相关的知识片段
+     * 检索与用户消息最相关的知识片段（两级检索）
+     *
+     * 第一级（粗召回）：用户消息向量化 → PgVector余弦相似度取 recallN 条候选（命中HNSW索引）；
+     * 第二级（精排）：若配置了 RerankClient（rag.rerank.enabled=true 且有 key），
+     *                对候选做 cross-encoder 重排序后取 Top-K；
+     *                未配置或 rerank 调用/降级失败时，保守按向量相似度取 Top-K（可用性优先，不抛异常）。
      *
      * @param userMessage 用户消息
-     * @return 检索结果列表（最多TOP_K条，按相似度降序）
+     * @return 检索结果列表（按精排/相似度降序，最多topK条）
      */
     public List<SearchResult> retrieve(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) {
@@ -258,31 +270,73 @@ public class RagService {
             float[] queryVector = embeddingModel.embed(userMessage);
             String vecStr = toPgVector(queryVector);
 
-            // PgVector余弦距离 <=> 范围 [0,2]，相似度 = 1 - 距离
-            // ORDER BY embedding <=> ? 可命中HNSW索引，避免全表扫描
+            // 第一级：粗召回 recallN 条候选（命中 HNSW 索引），再过滤低分
+            int recallN = embeddingConfig.getRerankRecallN();
             String sql = "SELECT title, content, 1 - (embedding <=> ?::vector) AS similarity " +
                     "FROM rag_embedding " +
                     "ORDER BY embedding <=> ?::vector " +
-                    "LIMIT " + TOP_K;
+                    "LIMIT " + recallN;
 
-            List<SearchResult> results = pgJdbcTemplate.query(sql,
+            List<SearchResult> candidates = pgJdbcTemplate.query(sql,
                     (rs, rowNum) -> new SearchResult(
                             rs.getString("title"),
                             rs.getString("content"),
                             rs.getDouble("similarity")
                     ),
                     vecStr, vecStr
-            );
-
-            // 过滤低于阈值的结果，并写入缓存
-            List<SearchResult> filtered = results.stream()
+            ).stream()
                     .filter(r -> r.score >= SIMILARITY_THRESHOLD)
                     .collect(Collectors.toList());
-            retrievalCache.put(userMessage, filtered);
-            return filtered;
+
+            List<SearchResult> finalResults = secondStageRank(userMessage, candidates);
+            retrievalCache.put(userMessage, finalResults);
+            return finalResults;
         } catch (Exception e) {
             log.warn("RAG检索失败: {}", e.getMessage());
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 第二级：可选的精排。未开启 rerank / 无候选 / 精排抛异常时，降级为按向量相似度取前 Top-K。
+     *
+     * 降级必须「不抛异常」（RerankClient.rerank 内部已 try/catch 兜底为原始顺序），
+     * 这里再做一层防御，保证生产链路绝不因精排故障返回空结果。
+     * package-private：供 {@code RagServiceTwoStageTest} 直接测降级逻辑（沿用 callWithRetry 的测试惯例）。
+     */
+    List<SearchResult> secondStageRank(String userMessage, List<SearchResult> candidates) {
+        if (candidates.isEmpty()) {
+            return candidates;
+        }
+        int topK = embeddingConfig.getRerankTopK();
+        // 候选不足 Top-K 时无需精排（全量已是"排序后"结果）
+        if (candidates.size() <= topK) {
+            return candidates;
+        }
+
+        RerankClient rerank = rerankClientProvider.getIfAvailable();
+        if (rerank == null) {
+            return candidates.subList(0, Math.min(topK, candidates.size()));
+        }
+
+        try {
+            List<String> docTexts = candidates.stream().map(r -> r.content).toList();
+            List<RerankClient.RerankResult> ranked = rerank.rerank(userMessage, docTexts, topK);
+            Map<Integer, SearchResult> byIndex = new HashMap<>();
+            for (int i = 0; i < candidates.size(); i++) {
+                byIndex.put(i, candidates.get(i));
+            }
+            List<SearchResult> out = new ArrayList<>(ranked.size());
+            for (RerankClient.RerankResult r : ranked) {
+                SearchResult sr = byIndex.get(r.originalIndex());
+                if (sr != null) {
+                    out.add(new SearchResult(sr.title(), sr.content(), r.score()));
+                }
+            }
+            return out.isEmpty() ? candidates.subList(0, Math.min(topK, candidates.size())) : out;
+        } catch (Exception e) {
+            log.warn("[RAG-RERANK] 精排失败，降级为向量相似度 Top-{}: {}", topK, e.getMessage());
+            return candidates.subList(0, Math.min(topK, candidates.size()));
         }
     }
 

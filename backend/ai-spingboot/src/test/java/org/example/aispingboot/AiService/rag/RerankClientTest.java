@@ -10,10 +10,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * P1　两级检索（Rerank）编排的单元测试（纯 JUnit，无 DB / 无外部 API）。
  *
  * 验证：
- *  - HeuristicRerankClient 按共现重叠打分、取 topK、保序、保留原始 index；
- *  - TwoStageRetrievalService 正确把候选交给 rerank 精排，空输入安全返回。
+ *  - HeuristicRerankClient 按共现重叠打分、取 topK、保序、保留原始 index。
  *
- * ⚠️ 本测试只验证「编排逻辑」，不证明「rerank 提升 recall」——那是 RagEvalRunner 跑真实数据的事。
+ * ⚠️ 本测试只验证「HeuristicRerankClient 打分逻辑」，不证明「rerank 提升 recall」——那是 RagEvalRunner 跑真实数据的事。
+ * （两级检索的编排/降级逻辑由 RagServiceTwoStageTest 覆盖。）
  */
 class RerankClientTest {
 
@@ -51,33 +51,5 @@ class RerankClientTest {
         assertThat(client.rerank("q", null, 3)).isEmpty();
         assertThat(client.rerank(null, List.of("x"), 3)).isEmpty();
         assertThat(client.rerank("q", List.of("x"), 0)).isEmpty();
-    }
-
-    @Test
-    void 两级服务_把候选交给rerank并取topK() {
-        RerankClient mockRerank = (q, docs, k) -> {
-            // 桩：直接把前 k 个按原始顺序作为「精排结果」（带分数）
-            List<RerankClient.RerankResult> out = new java.util.ArrayList<>();
-            for (int i = 0; i < Math.min(k, docs.size()); i++) {
-                out.add(new RerankClient.RerankResult(i, docs.get(i), docs.size() - i));
-            }
-            return out;
-        };
-        TwoStageRetrievalService svc = new TwoStageRetrievalService(mockRerank, 20);
-
-        List<String> candidates = List.of("c1", "c2", "c3", "c4");
-        List<RerankClient.RerankResult> top2 = svc.rerankDocuments("q", candidates, 2);
-
-        assertThat(top2).hasSize(2);
-        assertThat(top2.get(0).text()).isEqualTo("c1");
-        assertThat(top2.get(1).text()).isEqualTo("c2");
-    }
-
-    @Test
-    void 两级服务_空候选安全返回空() {
-        RerankClient c = (q, d, k) -> List.of();
-        TwoStageRetrievalService svc = new TwoStageRetrievalService(c, 20);
-        assertThat(svc.rerankDocuments("q", List.of(), 3)).isEmpty();
-        assertThat(svc.rerankDocuments("q", null, 3)).isEmpty();
     }
 }
