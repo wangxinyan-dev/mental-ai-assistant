@@ -58,6 +58,16 @@ class RagEvalRunner {
     private static final int TOP_K = 3;
     private static final double MIN_SIM = 0.0;
 
+    /**
+     * 策略 A 的 TokenTextSplitter：显式把 chunk 上限压到 512 token（嵌入模型 bge-large-zh 输入上限）。
+     * 默认构造器是 800 token/chunk，直接超模型上限触发 400 崩溃；这里 minChunkSizeChars 也收紧，
+     * 中文 1 字≈1.5 token 折算后 512 token ≈ 341 字，取 240 字为安全预算避免边缘超限。
+     */
+    private static TokenTextSplitter safeTokenSplitter() {
+        // chunkSize=512 token, minChunkSizeChars=240, minChunkLengthToEmbed=10, maxNumChunks=10000, keepSeparator=true
+        return new TokenTextSplitter(512, 240, 10, 10000, true);
+    }
+
     @Test
     void compareChunkingRecall() throws IOException {
         // 读评测集（mock 文章 + 问题 + 黄金标注）
@@ -98,6 +108,57 @@ class RagEvalRunner {
         Path out = Paths.get("target", "eval-report.txt");
         Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
         log.info("评测报告已写入 {}", out.toAbsolutePath());
+        System.out.println(report);
+    }
+
+    // ==================== 语料模式：96 篇「答案非唯一」大语料 ====================
+
+    /**
+     * P0-Corpus · 在 96 篇自建模拟语料（每簇 8 篇、答案非唯一）上对比三种 chunking 的 recall@k。
+     *
+     * 与内置 20 篇评测的关键区别：语料是「多篇同簇、同一黄金锚点多处出现」，
+     * 检索必须在相近文档间做区分，此语境下 A(token) vs C(标题层级) 才可能拉开，
+     * 不再出现“整篇单块天然全中”的假象。评测口径同 {@code runRecall}（黄金子串命中前 k）。
+     *
+     * 数据源 {@link CorpusEvalSet#load()}：读 scripts/corpus 下由 DeepSeek 生成的模拟语料。
+     */
+    @Test
+    void compareCorpusChunkingRecall() throws IOException {
+        RagEvalSet.EvalSet eval = CorpusEvalSet.load();
+        assertThat(eval.articles()).hasSizeGreaterThanOrEqualTo(60); // 至少 60 篇才算语料就绪
+        assertThat(eval.questions()).hasSizeGreaterThanOrEqualTo(20);
+
+        List<ChunkingStrategy> strategies = List.of(
+                new ChunkingStrategy("A_token512", (title, md) ->
+                        MarkdownChunker.splitWith(safeTokenSplitter(), title, md)),
+                new ChunkingStrategy("B_定长+overlap", (title, md) ->
+                        MarkdownChunker.splitByFixedSize(title, md, 120, 20)),
+                new ChunkingStrategy("C_按标题层级", (title, md) ->
+                        MarkdownChunker.splitByH2(title, md))
+        );
+
+        StringBuilder report = new StringBuilder("P0-Corpus chunking recall@k 对比（96篇答案非唯一语料，真实Embedding+PgVector）\n");
+        report.append("文章数=").append(eval.articles().size())
+              .append(" 问题数=").append(eval.questions().size()).append('\n');
+
+        for (ChunkingStrategy strat : strategies) {
+            String table = "rag_eval_corpus_chunk_" + strat.id().replaceAll("[^A-Za-z0-9]", "_");
+            dropTable(table);
+            try {
+                int chunks = buildIndexForStrategy(table, eval, strat);
+                RecallStats s = runRecall(eval, table, strat.id());
+                report.append(String.format(
+                        "%-14s 分块数=%-4d recall@1=%.2f recall@3=%.2f recall@5=%.2f avgFirstHitRank=%.2f%n",
+                        strat.id(), chunks, s.recall()[0], s.recall()[1], s.recall()[2], s.avgFirstHitRank()));
+                log.info("[Corpus] {} 分块数={} recall@1={} recall@3={} recall@5={} avgFirstHitRank={}",
+                        strat.id(), chunks, s.recall()[0], s.recall()[1], s.recall()[2], s.avgFirstHitRank());
+            } finally {
+                dropTable(table);
+            }
+        }
+        Path out = Paths.get("target", "eval-report-corpus.txt");
+        Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
+        log.info("语料评测报告已写入 {}", out.toAbsolutePath());
         System.out.println(report);
     }
 
@@ -301,12 +362,21 @@ class RagEvalRunner {
     }
 
     private List<float[]> embedAll(List<String> texts) {
+        // 兜底：任何 chunk 超过 350 字即截断（bge 512 token 上限的下限折算）。
+        // 主防线在 chunking（策略 A/C 已压到 ≤300 字），此处仅防极端单段超长导致 400 崩溃。
+        List<String> capped = new ArrayList<>(texts.size());
+        for (String t : texts) {
+            capped.add(t.length() > 350 ? t.substring(0, 350) : t);
+        }
         List<float[]> out = new ArrayList<>();
-        for (int start = 0; start < texts.size(); start += 10) {
-            int end = Math.min(start + 10, texts.size());
-            EmbeddingRequest req = new EmbeddingRequest(texts.subList(start, end), null);
+        for (int start = 0; start < capped.size(); start += 10) {
+            int end = Math.min(start + 10, capped.size());
+            List<float[]> batch = new ArrayList<>();
+            List<String> sub = capped.subList(start, end);
+            EmbeddingRequest req = new EmbeddingRequest(sub, null);
             EmbeddingResponse resp = embeddingModel.call(req);
-            resp.getResults().forEach(r -> out.add(r.getOutput()));
+            resp.getResults().forEach(r -> batch.add(r.getOutput()));
+            out.addAll(batch);
         }
         return out;
     }

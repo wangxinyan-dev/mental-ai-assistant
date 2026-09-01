@@ -65,10 +65,58 @@ public final class MarkdownChunker {
             String block = String.join("\n",
                     java.util.Arrays.copyOfRange(lines, blockStartLine, blockEndLine)).strip();
             if (!block.isBlank()) {
-                docs.add(new Document(block, Map.of("title", title, "section", firstH2Title(block))));
+                docs.addAll(splitSectionWithinBudget(block, title));
             }
         }
         return docs;
+    }
+
+    // ==================== 嵌入模型输入上限适配 ====================
+
+    /**
+     * 嵌入模型 bge-large-zh 输入上限 512 token，中文按 1 字≈1.5 token 保守折算，
+     * 故单块内容超 {@link #MAX_CHUNK_CHARS} 字符时必须再切，否则 embedding 调用 400 崩溃
+     * （实测 500-800 字小节直接触发）。
+     *
+     * 策略：段内按「换行段」边界累计，凑满预算即成块（保留标题行在首块），
+     * 黄金锚点（句子/术语）在整段内不切断——与 B 定长切不同，这里不产生半句残块。
+     */
+    private static final int MAX_CHUNK_CHARS = 300; // ~450 token，给 512 留足余量
+
+    /** 若单个小节内容超 MAX_CHUNK_CHARS，按段边界切碎；否则原样返回单块。 */
+    private static List<Document> splitSectionWithinBudget(String block, String title) {
+        if (block.length() <= MAX_CHUNK_CHARS) {
+            return List.of(new Document(block, Map.of("title", title, "section", firstH2Title(block))));
+        }
+        // 超长：按换行段拆，凑满 budget 就收一个块；标题行并入首块保证上下文完整
+        String section = firstH2Title(block);
+        String[] paras = block.split("\n(?=\\S)", -1);
+        List<Document> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        for (String p : paras) {
+            // 单个段落本身已超预算（无换行可拆）：按字符硬切，避免产生超长块
+            if (p.length() > MAX_CHUNK_CHARS) {
+                // 先把已累计的 cur 落盘
+                if (cur.length() > 0) {
+                    out.add(new Document(cur.toString().strip(), Map.of("title", title, "section", section)));
+                    cur.setLength(0);
+                }
+                for (int s = 0; s < p.length(); s += MAX_CHUNK_CHARS) {
+                    String piece = p.substring(s, Math.min(s + MAX_CHUNK_CHARS, p.length()));
+                    out.add(new Document(piece.strip(), Map.of("title", title, "section", section)));
+                }
+                continue;
+            }
+            if (cur.length() + p.length() > MAX_CHUNK_CHARS && cur.length() > 0) {
+                out.add(new Document(cur.toString().strip(), Map.of("title", title, "section", section)));
+                cur.setLength(0);
+            }
+            cur.append(p).append('\n');
+        }
+        if (cur.length() > 0) {
+            out.add(new Document(cur.toString().strip(), Map.of("title", title, "section", section)));
+        }
+        return out;
     }
 
     /** 从一段文本里取第一个 `## 标题` 的标题文本；无则返回空串。 */
