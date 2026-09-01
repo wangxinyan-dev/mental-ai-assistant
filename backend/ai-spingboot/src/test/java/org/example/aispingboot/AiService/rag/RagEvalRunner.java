@@ -322,6 +322,46 @@ class RagEvalRunner {
         System.out.println(report);
     }
 
+    /**
+     * P2-Corpus · 在 96 篇答案非唯一语料上重测混合检索（pg_trgm 关键词 + RRF 融合），
+     * 与 20 篇 {@code compareHybridFusion} 对照——语料放大后看 RRF 是否仍负面。
+     *
+     * 诚实口径（与 20 篇一致）：`pg_trgm` 对中文是字级 trigram、无分词，整句 query 当 trigram 串
+     * 匹配的语义质量本就有限；本测试只回答「在更大的、可区分的语料上，混合 RRF 相比纯向量是升是降」，
+     * 用真实数据说话，不预设结论。
+     */
+    @Test
+    void compareCorpusHybridFusion() throws IOException {
+        RagEvalSet.EvalSet eval = CorpusEvalSet.load();
+        assertThat(eval.articles()).hasSizeGreaterThanOrEqualTo(60);
+        assertThat(eval.questions()).hasSizeGreaterThanOrEqualTo(20);
+
+        String table = "rag_eval_corpus_hybrid";
+        dropTable(table);
+        StringBuilder report = new StringBuilder("P2-Corpus 混合检索（pg_trgm + RRF）对比（96篇语料）\n");
+        report.append("文章数=").append(eval.articles().size())
+              .append(" 问题数=").append(eval.questions().size()).append('\n');
+        try {
+            int chunks = buildIndexForStrategy(table, eval,
+                    new ChunkingStrategy("C", (t, md) -> MarkdownChunker.splitByH2(t, md)));
+            ensureTrgmExtension();
+
+            double[] baseline = runRecall(eval, table, "baseline").recall();
+            double[] hybrid = runRecallHybrid(eval, table, 20, 20, 3);
+
+            report.append(String.format("纯向量top3    recall@1=%.2f recall@3=%.2f%n", baseline[0], baseline[1]));
+            report.append(String.format("混合+RRF top3 recall@1=%.2f recall@3=%.2f%n", hybrid[0], hybrid[1]));
+            log.info("[Corpus] 分块数={} 纯向量 recall@1={} recall@3={} | 混合RRF recall@1={} recall@3={}",
+                    chunks, baseline[0], baseline[1], hybrid[0], hybrid[1]);
+        } finally {
+            dropTable(table);
+        }
+        Path out = Paths.get("target", "eval-report-corpus-hybrid.txt");
+        Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
+        log.info("语料混合测评报告已写入 {}", out.toAbsolutePath());
+        System.out.println(report);
+    }
+
     /** 确保评测库启用 pg_trgm 扩展（幂等） */
     private void ensureTrgmExtension() {
         pg.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm");
