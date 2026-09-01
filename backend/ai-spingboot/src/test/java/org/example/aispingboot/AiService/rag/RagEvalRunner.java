@@ -203,6 +203,53 @@ class RagEvalRunner {
         System.out.println(report);
     }
 
+    /**
+     * P1-Corpus · 在 96 篇答案非唯一语料上，用**真实 cross-encoder**（bge-reranker-v2-m3 via
+     * SiliconFlow）对比「向量直排 top3」vs「召回放宽 top20 + rerank 精排 top3」的 recall@k。
+     *
+     * 与 20 篇 {@code compareRerankImprovement} 的区别：①真实 client（非字符重叠占位，
+     * 语义打分）；②语料放大到「同簇多篇同答案」，才看得到 rerank 在相近文档间的区分价值。
+     *
+     * ⚠️ 诚实口径：rerank 的 relevance_score 是「语义相关性」，recall 判定是「黄金子串是否命中」，
+     * 两者不同——若 rerank 把严格含答案文本的块降权、把语义相近但不含文本的块提权，recall 可能
+     * 不升反降，这是「口径错位」不是 rerank 无效。故本方法同时报告 ③「rerank 是否把语义更相关
+     * 的块排前面」的辅助统计（见 {@code runRecallWithRerank} 内注释），供解读时分清。
+     */
+    @Test
+    void compareCorpusRerankImprovement() throws IOException {
+        RagEvalSet.EvalSet eval = CorpusEvalSet.load();
+        assertThat(eval.articles()).hasSizeGreaterThanOrEqualTo(60);
+        assertThat(eval.questions()).hasSizeGreaterThanOrEqualTo(20);
+
+        String table = "rag_eval_corpus_rerank";
+        dropTable(table);
+        StringBuilder report = new StringBuilder("P1-Corpus rerank 精排对比（96篇语料，真实 cross-encoder BGE reranker）\n");
+        report.append("文章数=").append(eval.articles().size())
+              .append(" 问题数=").append(eval.questions().size()).append('\n');
+        try {
+            int chunks = buildIndexForStrategy(table, eval,
+                    new ChunkingStrategy("C", (t, md) -> MarkdownChunker.splitByH2(t, md)));
+
+            // 基线：直接向量 top-3
+            double[] baseline = runRecall(eval, table, "baseline").recall();
+
+            // P1: 召回放宽到 top-20，真实 cross-encoder rerank 精排 top-3
+            RerankClient rerank = new SiliconFlowRerankClient();
+            double[] reranked = runRecallWithRerank(eval, table, rerank, 20, 3);
+
+            report.append(String.format("直排top3      recall@1=%.2f recall@3=%.2f%n", baseline[0], baseline[1]));
+            report.append(String.format("召回20+rerank3 recall@1=%.2f recall@3=%.2f%n", reranked[0], reranked[1]));
+            log.info("[Corpus][真实rerank] 分块数={} 直排 recall@1={} recall@3={} | rerank recall@1={} recall@3={}",
+                    chunks, baseline[0], baseline[1], reranked[0], reranked[1]);
+        } finally {
+            dropTable(table);
+        }
+        Path out = Paths.get("target", "eval-report-corpus-rerank.txt");
+        Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
+        log.info("语料 rerank 评测报告已写入 {}", out.toAbsolutePath());
+        System.out.println(report);
+    }
+
     /** 召回放宽 + rerank 精排后算 recall@k */
     private double[] runRecallWithRerank(RagEvalSet.EvalSet eval, String table,
                                          RerankClient rerank, int recallN, int topK) {
