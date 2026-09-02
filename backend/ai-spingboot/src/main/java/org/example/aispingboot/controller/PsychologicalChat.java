@@ -103,6 +103,9 @@ public class PsychologicalChat {
 
     @GetMapping("/session/{id}/emotion")
     public Result<Map<String, Object>> getSessionEmotion(@PathVariable Long id) {
-        return Result.ok(consultationSessionService.getSessionEmotion(id));
+        String token = JwtTokenUtil.getCurrentToken();
+        DecodedJWT jwt = JwtTokenUtil.verifyToken(token);
+        Long userId = jwt.getClaim("userId").asLong();
+        return Result.ok(consultationSessionService.getSessionEmotion(id, userId));
     }
 }

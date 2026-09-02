@@ -24,6 +24,10 @@ public class EmotionDiaryService {
     @Resource
     private UserMapper userMapper;
 
+    /** 异步 AI 情绪分析（独立 Bean，跨 Bean 调用保证 @Async 生效，不阻塞保存主链路） */
+    @Resource
+    private EmotionAsyncTask emotionAsyncTask;
+
     public void saveDiary(Long userId, Map<String, Object> dto) {
         LocalDate diaryDate = LocalDate.now();
         if (dto.containsKey("diaryDate") && dto.get("diaryDate") != null) {
@@ -47,6 +51,10 @@ public class EmotionDiaryService {
         diary.setUpdatedAt(LocalDateTime.now());
 
         diaryMapper.insert(diary);
+
+        // 异步触发 AI 情绪分析：README"AI 生成关怀建议"由规则引擎升级为真实 LLM 生成。
+        // 分析 JSON 写入 ai_emotion_analysis，管理端"AI情绪分析结果"面板由此有数据。
+        emotionAsyncTask.analyzeDiary(diary.getId());
     }
 
     public Map<String, Object> adminPage(Integer current, Integer size, Long userId, String moodScoreRange) {

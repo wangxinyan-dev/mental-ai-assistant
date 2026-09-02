@@ -200,10 +200,14 @@ public class ConsultationSessionService {
         return consultationMessageMapper.selectList(qw);
     }
 
-    public Map<String, Object> getSessionEmotion(Long sessionId) {
+    public Map<String, Object> getSessionEmotion(Long sessionId, Long userId) {
         ConsultationSession session = consultationSessionMapper.selectById(sessionId);
         if (session == null) {
             return new HashMap<>();
+        }
+        // 归属校验：防 IDOR，任意登录用户不得凭 sessionId 读他人会话情绪（与 getSessionMessages 一致）
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权查看他人的会话记录");
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
