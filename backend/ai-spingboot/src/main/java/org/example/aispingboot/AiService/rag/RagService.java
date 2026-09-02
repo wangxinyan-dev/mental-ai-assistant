@@ -101,7 +101,20 @@ public class RagService {
      */
     private record ChunkBatchItem(KnowledgeChunk chunk, String title, String chunkText) {}
 
-    private final TokenTextSplitter textSplitter = new TokenTextSplitter();
+    /**
+     * 分块器 —— defaultChunkSize 硬设为 512（token，TokenTextSplitter 按 token 而非字符分块）。
+     *
+     * ⚠️ 为什么必须显式给 512：底层 Embedding 模型 BAAI/bge-large-zh-v1.5 有 **512 token 输入上限**，
+     * 超出即返回 HTTP 400 / code 20015（"The parameter is invalid"）。
+     * 用无参 {@code new TokenTextSplitter()} 会走 Spring AI 默认 chunkSize（通常远超 512 token），
+     * 超长中文分块（如 >650 字符的段落）送去向量化必然 400 → 重试 3 次耗尽后跳过整批 →
+     * 出现"MySQL 已写分块、PgVector 0 向量"的两库不一致（跨库最终一致策略依赖 embedding 必须成功）。
+     *
+     * 参数沿用评测（RagEvalRunner.safeTokenSplitter）在 96 篇语料上验证过的配置：
+     * (defaultChunkSize=512, minChunkSizeChars=240, minChunkLengthToEmbed=10, maxNumChunks=10000, keepSeparator=true)
+     * 512 即模型 token 上限，取满保证单块信息量最大又不越界；keepSeparator=true 保留换行分隔符利于语义连贯。
+     */
+    private final TokenTextSplitter textSplitter = new TokenTextSplitter(512, 240, 10, 10000, true);
 
     /**
      * 检索结果

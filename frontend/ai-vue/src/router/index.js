@@ -42,6 +42,14 @@ const backendRoutes = [
                     title: '情绪日志',
                     icon: 'User'
                 }
+            },
+            {
+                path: 'rag',
+                component: () => import('@/views/ragConsole.vue'),
+                meta: {
+                    title: 'RAG 调试',
+                    icon: 'Search'
+                }
             }
         ]
     },

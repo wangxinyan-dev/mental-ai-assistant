@@ -69,6 +69,21 @@ export function getAnalyticsOverview() {
     return service.get(`/data-analytics/overview`)
 }
 
+/** 查看 RAG 索引状态 */
+export function getRagStatus() {
+    return service.get('/rag/status')
+}
+
+/** 重建 RAG 索引（扫描已发布文章 → 分块 → 向量化 → 写库，耗时较长） */
+export function rebuildRagIndex() {
+    return service.post('/rag/rebuild')
+}
+
+/** 检索调试：输入 query 返回 Top-K 相关片段（含相似度分数） */
+export function ragSearch(query) {
+    return service.get('/rag/search', { params: { query } })
+}
+
 export function logout() {
     return service.post('/user/logout')
 }

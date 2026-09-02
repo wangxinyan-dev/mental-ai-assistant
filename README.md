@@ -278,7 +278,7 @@ npm run dev
 | 情绪日记 | `/api/emotion-diary/**` | CRUD / 我的历史 / 趋势统计 |
 | 知识库前台 | `GET /api/knowledge/category/tree` / `article/page` / `article/{id}` | 前台浏览（不需登录） |
 | 知识库后台 | `/api/knowledge/**`（POST/PUT/DELETE） | 管理员：分类 / 文章 / 分块 CRUD |
-| RAG 管理 | `POST /api/rag/rebuild` / `GET /api/rag/status` | 手动触发重建 / 索引状态 |
+| RAG 管理（含调试台） | `POST /api/rag/rebuild` / `GET /api/rag/status` / `GET /api/rag/search` | 管理员手动重建 / 索引状态 / 检索调试；前端「管理后台 → RAG 调试」页集成三个能力 |
 | 数据分析 | `GET /api/data-analytics/**` | 管理员：用户 / 咨询 / 情绪统计 |
 | 文件 | `POST /api/file/upload` | 图片上传 |
 
