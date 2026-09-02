@@ -140,12 +140,8 @@ ai_assistant2_0/
 
 | 优化点 | 问题 | 方案 | 效果 |
 |--------|------|------|------|
-| **计数器并发更新** | `read_count = read_count + 1` 读改写丢失 | 原子 SQL：`UPDATE SET read_count = COALESCE(read_count,0) + 1` | 并发 1000 次 0 丢失（vs 原方案丢失约 30%） |
 | **JWT 过滤器无意义查库** | 每次请求 `selectById` 查用户 ID 对应状态 | JWT claims 中嵌入 userId/username/roleType，Caffeine 2min TTL 缓存 userStatus | 每次请求节省 1 次 DB round-trip |
 | **分类树重复 DB 查询** | 每篇文章列表都查完整分类树 | Caffeine 30min TTL 缓存 `getCategoryTree` | 重复查询直接命中缓存，约降低 60% DB QPS |
-| **列表查询数据冗余** | MyBatis-Plus `selectPage` 默认带 `content` LONGTEXT，每条几十 KB | 显式选 11 个字段排除 content | 响应体从 ~200KB → ~20KB，前端渲染明显提速 |
-| **HikariCP 连接池** | 默认配置下 MySQL 8h 断线导致死连接 | `max-lifetime=30min` + `connection-test-query=SELECT 1` + `leak-detection-threshold=60s` | 线上跑 7 天 0 死连接 |
-| **Streaming 延迟** | 流式输出 `.delayElements(Duration.ofMillis(50))` 人为卡顿 | 移除 artificial delay，自然流式输出 | LLM 首 token 时间从 ~1s → ~200ms |
 | **RAG 重建 Embedding 网络开销** | 每分块 1 次 HTTP 调用 Embedding API，200 块 = 200 次请求 | `EmbeddingRequest` 10 条一批批量调用，返回数量 mismatch 主动抛异常 | **HTTP round-trip 降低 90%**，重建 200 块从 ~10s → ~3s |
 | **RAG 重建多数据源一致性** | 失败时 MySQL 分块删除后未回滚 →"索引空窗" | `@Transactional(rollbackFor=Exception.class)` 包裹 MySQL 删除+插入，异常整体回滚 | 压测 10 次失败注入，MySQL 侧 0 残留脏数据 |
 
