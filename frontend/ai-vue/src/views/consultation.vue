@@ -114,7 +114,11 @@
                                 <div v-else-if="msg.isError" class="error-message">
                                     <p>{{ msg.content }}</p>
                                 </div>
-                                <!-- AI Message (Markdown) -->
+                                <!-- 正在流式的最后一条 AI 消息：纯文本渐进显示（避免每帧全量 Markdown 重解析 + v-html 重建 DOM 导致卡顿/整段跳） -->
+                                <div v-else-if="msg.senderType === 2 && isAiTyping && lastMessage && msg.id === lastMessage.id" class="streaming-text">
+                                    {{ msg.content }}<span class="caret">▌</span>
+                                </div>
+                                <!-- AI Message (Markdown) 流已结束/历史消息再渲染 Markdown -->
                                 <MarkdownRenderer v-else-if="msg.senderType === 2 && !msg.isError" :content="msg.content" :is-ai-message="true" />
                                 <!-- User Message -->
                                 <p v-else-if="msg.content">{{ msg.content }}</p>
@@ -203,6 +207,9 @@ const messages = ref([])
 const userMessage = ref('')
 const isAiTyping = ref(false)
 const messagesContainer = ref(null)
+
+// 最后一条消息：仅用于流式期间标记「正在输出」的那条 AI 消息走纯文本渐进渲染，其余走 Markdown
+const lastMessage = computed(() => messages.value.length ? messages.value[messages.value.length - 1] : null)
 
 const currentTime = ref('')
 
@@ -845,5 +852,25 @@ onMounted(() => {
 @keyframes typing {
     0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
     30% { transform: translateY(-6px); opacity: 1; }
+}
+
+/* 流式纯文本渲染：跟随 token 逐字显示,零 Markdown 重解析开销 */
+.streaming-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.75;
+    color: #303133;
+    font-size: 14px;
+}
+
+.streaming-text .caret {
+    display: inline-block;
+    margin-left: 2px;
+    color: #3b82f6;
+    animation: caret-blink 1s steps(1) infinite;
+}
+
+@keyframes caret-blink {
+    50% { opacity: 0; }
 }
 </style>

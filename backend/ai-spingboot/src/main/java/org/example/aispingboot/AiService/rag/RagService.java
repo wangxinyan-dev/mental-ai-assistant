@@ -280,8 +280,10 @@ public class RagService {
 
         try {
             // 将用户消息向量化
+            long tEmbedStart = System.currentTimeMillis();
             float[] queryVector = embeddingModel.embed(userMessage);
             String vecStr = toPgVector(queryVector);
+            log.warn("[TTFT] RAG.embedding 耗时 = {}ms", System.currentTimeMillis() - tEmbedStart);
 
             // 第一级：粗召回 recallN 条候选（命中 HNSW 索引），再过滤低分
             int recallN = embeddingConfig.getRerankRecallN();
@@ -290,6 +292,7 @@ public class RagService {
                     "ORDER BY embedding <=> ?::vector " +
                     "LIMIT " + recallN;
 
+            long tPgStart = System.currentTimeMillis();
             List<SearchResult> candidates = pgJdbcTemplate.query(sql,
                     (rs, rowNum) -> new SearchResult(
                             rs.getString("title"),
@@ -300,6 +303,7 @@ public class RagService {
             ).stream()
                     .filter(r -> r.score >= SIMILARITY_THRESHOLD)
                     .collect(Collectors.toList());
+            log.warn("[TTFT] RAG.PgVector检索 耗时 = {}ms（候选{}条）", System.currentTimeMillis() - tPgStart, candidates.size());
 
             List<SearchResult> finalResults = secondStageRank(userMessage, candidates);
             retrievalCache.put(userMessage, finalResults);

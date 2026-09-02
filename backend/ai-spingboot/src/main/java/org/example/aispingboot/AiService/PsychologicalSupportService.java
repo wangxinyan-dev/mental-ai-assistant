@@ -18,6 +18,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -26,6 +27,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 public class PsychologicalSupportService {
     @Autowired
@@ -94,10 +96,11 @@ public class PsychologicalSupportService {
         // 保存用户消息（如果不是初始会话消息）
         saveUserMessageIfNeeded(dbSessionId, userMessage);
 
-        // 关键：buildSystemPrompt 内部的 RAG 检索（Embedding HTTP + PG JDBC）是阻塞 IO，
-        // 用 Mono.fromCallable + subscribeOn(boundedElastic) 移到弹性线程池，
-        // 避免阻塞 Netty 事件循环 / 请求线程
+        // 首 token 延迟打点：RAG 检索（Embedding HTTP + PG JDBC）与 LLM prefill 是首 token 前两大耗时，
+        // 分别计时以定位"提问后迟迟无输出"的瓶颈（长上下文 prefill vs RAG 检索）。
+        long tRagStart = System.currentTimeMillis();
         return Mono.fromCallable(() -> buildSystemPrompt(crisisResult, userMessage))
+                .doOnNext(p -> log.warn("[TTFT] RAG检索+拼prompt 耗时 = {}ms", System.currentTimeMillis() - tRagStart))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(systemPrompt ->
                         buildChatStream(dbSessionId, sessionId, userMessage, crisisResult, systemPrompt));
@@ -115,13 +118,22 @@ public class PsychologicalSupportService {
 
         StringBuilder fullResponse = new StringBuilder();
 
+        // TTFT（首 token)打点：buildChatStream 内 prompt 已就绪，第一帧耗时 ≈ 纯 LLM prefill（含 advisor 拼历史）
+        long tChatStart = System.currentTimeMillis();
+        java.util.concurrent.atomic.AtomicBoolean firstTokenLogged = new java.util.concurrent.atomic.AtomicBoolean(false);
+
         // AI 主流：累积回复内容
         Flux<String> mainStream = chatClient.prompt(prompt)
                 .user(userMessage)
                 .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
                 .content()
-                .doOnNext(fullResponse::append);
+                .doOnNext(chunk -> {
+                    fullResponse.append(chunk);
+                    if (firstTokenLogged.compareAndSet(false, true)) {
+                        log.warn("[TTFT] LLM prefill(首token)耗时 = {}ms（子prompt→首块）", System.currentTimeMillis() - tChatStart);
+                    }
+                });
 
         // 命中危机关键词时，在 AI 回复末尾以"非阻塞逐字"方式推送援助热线
         if (crisisResult.isTriggered()) {
